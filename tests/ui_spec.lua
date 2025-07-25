@@ -161,10 +161,11 @@ describe("scratch-manager.ui", function()
         cwd_width = 25
       }
 
-      local result = ui.format_item_line(test_item, test_widths, false, mock_config)
+      local line, highlights = ui.format_item_line(test_item, test_widths, false, mock_config)
 
-      assert.is_string(result)
-      assert.is_true(#result > 0)
+      assert.is_string(line)
+      assert.is_true(#line > 0)
+      -- highlights may be nil (fallback) or table (colored icons)
     end)
 
     it("should handle selected items", function()
@@ -181,10 +182,11 @@ describe("scratch-manager.ui", function()
         cwd_width = 25
       }
 
-      local result = ui.format_item_line(test_item, test_widths, true, mock_config)
+      local line, highlights = ui.format_item_line(test_item, test_widths, true, mock_config)
 
-      assert.is_string(result)
-      assert.is_true(#result > 0)
+      assert.is_string(line)
+      assert.is_true(#line > 0)
+      -- highlights may be nil (fallback) or table (colored icons)
     end)
 
     it("should handle items with missing data", function()
@@ -203,7 +205,8 @@ describe("scratch-manager.ui", function()
 
       -- Should not error with missing data
       assert.has_no.errors(function()
-        ui.format_item_line(test_item, test_widths, false, mock_config)
+        local line, highlights = ui.format_item_line(test_item, test_widths, false, mock_config)
+        assert.is_string(line)
       end)
     end)
   end)

@@ -1,0 +1,13 @@
+Scheduling: tests/icon_provider_spec.lua
+Error detected while processing /Users/wwmac/.config/nvim/init.lua:
+E5113: Error while calling lua chunk: /Users/wwmac/.config/nvim/init.lua:6: Vim:E185: Cannot find color scheme 'catppuccin'
+stack traceback:
+	[C]: in function 'colorscheme'
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/icon_provider_spec.lua	
+========================================	
+FAILED TO LOAD FILE	
+[31mcannot open /Users/wwmac/plugins/scratch-manager.nvim/tests/icon_provider_spec.lua: No such file or directory[0m	
+========================================	
+	/Users/wwmac/.config/nvim/init.lua:6: in main chunk

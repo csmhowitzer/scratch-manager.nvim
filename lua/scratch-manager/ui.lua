@@ -5,6 +5,8 @@ local M = {}
 
 -- Load icons module for icon handling
 local icons = require("scratch-manager.icons")
+-- Load icon provider for colored icons (v2.0 enhancement)
+local icon_provider = require("scratch-manager.icon_provider")
 -- Load utils module for shared formatting
 local utils = require("scratch-manager.utils")
 
@@ -126,7 +128,8 @@ end
 ---@param widths table Column widths
 ---@param is_selected boolean Whether this item is currently selected
 ---@param config table Configuration object
----@return string Formatted display line
+---@return string line Formatted display line
+---@return table|nil highlights Highlight information {group, col_start, col_end} or nil
 function M.format_item_line(item, widths, is_selected, config)
   -- Extract components from item
 
@@ -135,14 +138,19 @@ function M.format_item_line(item, widths, is_selected, config)
   local cwd = item.cwd and vim.fn.fnamemodify(item.cwd, ":p:~") or ""
   local branch = config.ui.show_git_branch and get_git_branch(item.cwd) or ""
 
-  -- Get icon based on actual scratch buffer filetype (not filename)
+  -- Get icon with color support (v2.0 enhancement)
+  -- Use filename for better icon detection, with filetype as hint
   -- This ensures correct icons: markdown scratch buffers get markdown icons,
   -- even if the filename suggests a different type (e.g., "Project.cs" with markdown content)
-  local icon = icons.get_icon_for_filetype(item.ft or "")
+  local icon_result = icon_provider.get_icon_with_color(filename, item.ft or "")
+  local icon = icon_result.icon
+  local icon_hl = icon_result.hl
+
   -- Ensure icon is NEVER nil or empty for consistent spacing
   -- Every row must have an icon to maintain column alignment
   if not icon or icon == "" then
     icon = "󰈔"  -- Professional fallback icon for unknown file types
+    icon_hl = nil  -- No highlight for fallback
   end
 
   -- Truncate filename if necessary
@@ -161,7 +169,20 @@ function M.format_item_line(item, widths, is_selected, config)
   end
 
   -- Use centralized formatting to ensure consistency with header
-  return utils.format_columns(" ", icon, filename, branch, cwd, widths, config)
+  local formatted_line = utils.format_columns(" ", icon, filename, branch, cwd, widths, config)
+
+  -- Calculate icon highlight position if we have colored icons
+  local highlights = nil
+  if icon_hl then
+    -- Icon position calculation based on utils.format_columns structure:
+    -- Format: "selector icon filename branch cwd" (spaces between each part)
+    -- Icon starts after: selector (1 char) + space (1 char) = position 2
+    local icon_start = 2  -- 0-based position
+    local icon_end = icon_start + vim.fn.strdisplaywidth(icon)
+    highlights = { icon_hl, icon_start, icon_end }
+  end
+
+  return formatted_line, highlights
 end
 
 -- Expose internal functions for testing (following established pattern)

@@ -16,7 +16,9 @@ describe("scratch-manager.selection", function()
       end,
       format_item_line = function(item, widths, is_selected, config)
         local prefix = is_selected and "> " or "  "
-        return prefix .. (item.icon or "-") .. " " .. (item.name or "unknown")
+        local line = prefix .. (item.icon or "-") .. " " .. (item.name or "unknown")
+        local highlights = nil -- Mock no highlights for tests
+        return line, highlights
       end
     }
 

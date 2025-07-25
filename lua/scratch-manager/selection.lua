@@ -56,10 +56,15 @@ local function update_selection_display(config)
   local separator_width = win_width - 2 -- Account for window borders
   table.insert(lines, string.rep("─", separator_width))
 
-  -- Add items
+  -- Add items with highlight tracking
+  local item_highlights = {}
   for i, item in ipairs(selection_ui.items) do
-    local line = ui.format_item_line(item, widths, i == selection_ui.selected_idx, config)
+    local line, highlights = ui.format_item_line(item, widths, i == selection_ui.selected_idx, config)
     table.insert(lines, line)
+    if highlights then
+      -- Store highlights for this line (adjust line number for header offset)
+      item_highlights[i + 2] = highlights -- +2 for header and separator
+    end
   end
 
   -- Update buffer content
@@ -68,19 +73,28 @@ local function update_selection_display(config)
   vim.api.nvim_set_option_value("modifiable", false, { buf = selection_ui.buf })
   vim.api.nvim_set_option_value("readonly", true, { buf = selection_ui.buf })
 
-  -- Add highlighting
+  -- Add highlighting using separate namespaces for persistence
+  local header_ns_id = vim.api.nvim_create_namespace("scratch-manager-header")
   local ns_id = vim.api.nvim_create_namespace("scratch-manager-select")
   vim.api.nvim_buf_clear_namespace(selection_ui.buf, ns_id, 0, -1)
 
-  -- Highlight header with select-specific header highlight group
-  vim.api.nvim_buf_add_highlight(selection_ui.buf, ns_id, "ScratchManagerSelectHeader", 0, 0, -1)
-  -- Highlight separator with select-specific border highlight group
-  vim.api.nvim_buf_add_highlight(selection_ui.buf, ns_id, "ScratchManagerSelectBorder", 1, 0, -1)
+  -- Highlight header and separator in persistent namespace
+  vim.api.nvim_buf_add_highlight(selection_ui.buf, header_ns_id, "ScratchManagerSelectHeader", 0, 0, -1)
+  vim.api.nvim_buf_add_highlight(selection_ui.buf, header_ns_id, "ScratchManagerSelectBorder", 1, 0, -1)
 
-  -- Highlight selected item
+  -- Highlight selected item FIRST (so icon highlights can override it)
   if selection_ui.selected_idx > 0 and selection_ui.selected_idx <= #selection_ui.items then
     local line_idx = selection_ui.selected_idx + 1 -- +2 for header, -1 for 0-based indexing
     vim.api.nvim_buf_add_highlight(selection_ui.buf, ns_id, "Visual", line_idx, 0, -1)
+  end
+
+  -- Cache and apply icon highlights AFTER Visual (v2.0 colored icons)
+  -- Use separate namespace for icons so they don't get cleared during selection updates
+  local icon_ns_id = vim.api.nvim_create_namespace("scratch-manager-icons")
+  cached_icon_highlights = item_highlights -- Cache for fast re-application
+  for line_num, highlight_info in pairs(item_highlights) do
+    local hl_group, col_start, col_end = unpack(highlight_info)
+    vim.api.nvim_buf_add_highlight(selection_ui.buf, icon_ns_id, hl_group, line_num - 1, col_start, col_end)
   end
 
   -- Set cursor position (accounting for header)
@@ -88,6 +102,9 @@ local function update_selection_display(config)
     vim.api.nvim_win_set_cursor(selection_ui.win, { selection_ui.selected_idx + 2, 0 })
   end
 end
+
+-- Store icon highlights for fast re-application
+local cached_icon_highlights = {}
 
 ---Update only the selection highlighting (fast)
 ---@private
@@ -99,14 +116,20 @@ local function update_selection_highlighting()
   local ns_id = vim.api.nvim_create_namespace("scratch-manager-select")
   vim.api.nvim_buf_clear_namespace(selection_ui.buf, ns_id, 0, -1)
 
-  -- Re-highlight header and separator (these don't change)
-  vim.api.nvim_buf_add_highlight(selection_ui.buf, ns_id, "ScratchManagerHeader", 0, 0, -1)
-  vim.api.nvim_buf_add_highlight(selection_ui.buf, ns_id, "ScratchManagerSeparator", 1, 0, -1)
+  -- Header and separator are now in persistent namespace, no need to re-apply
 
-  -- Highlight selected item
+  -- Highlight selected item FIRST (so icon highlights can override it)
   if selection_ui.selected_idx > 0 and selection_ui.selected_idx <= #selection_ui.items then
     local line_idx = selection_ui.selected_idx + 1 -- +2 for header, -1 for 0-based indexing
     vim.api.nvim_buf_add_highlight(selection_ui.buf, ns_id, "Visual", line_idx, 0, -1)
+  end
+
+  -- Re-apply cached icon highlights AFTER Visual (v2.0 colored icons)
+  -- Use separate namespace for icons so they persist across selection updates
+  local icon_ns_id = vim.api.nvim_create_namespace("scratch-manager-icons")
+  for line_num, highlight_info in pairs(cached_icon_highlights) do
+    local hl_group, col_start, col_end = unpack(highlight_info)
+    vim.api.nvim_buf_add_highlight(selection_ui.buf, icon_ns_id, hl_group, line_num - 1, col_start, col_end)
   end
 
   -- Set cursor position (accounting for header)
