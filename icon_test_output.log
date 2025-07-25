@@ -1,0 +1,49 @@
+Scheduling: tests/icons_spec.lua
+Error detected while processing /Users/wwmac/.config/nvim/init.lua:
+E5113: Error while calling lua chunk: /Users/wwmac/.config/nvim/init.lua:6: Vim:E185: Cannot find color scheme 'catppuccin'
+stack traceback:
+	[C]: in function 'colorscheme'
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/icons_spec.lua	
+[31mFail[0m	||	scratch-manager.icons get_icon_for_file handles files with no extension	
+            .../wwmac/plugins/scratch-manager.nvim/tests/icons_spec.lua:17: Expected objects to be the same.
+            Passed in:
+            (boolean) false
+            Expected:
+            (boolean) true
+            
+            stack traceback:
+            	.../wwmac/plugins/scratch-manager.nvim/tests/icons_spec.lua:17: in function <.../wwmac/plugins/scratch-manager.nvim/tests/icons_spec.lua:13>
+            	
+[31mFail[0m	||	scratch-manager.icons get_icon_for_file handles files with empty extension	
+            .../wwmac/plugins/scratch-manager.nvim/tests/icons_spec.lua:24: Expected objects to be the same.
+            Passed in:
+            (boolean) false
+            Expected:
+            (boolean) true
+            
+            stack traceback:
+            	.../wwmac/plugins/scratch-manager.nvim/tests/icons_spec.lua:24: in function <.../wwmac/plugins/scratch-manager.nvim/tests/icons_spec.lua:20>
+            	
+[31mFail[0m	||	scratch-manager.icons get_icon_for_file handles files with spaces in name and no extension	
+            .../wwmac/plugins/scratch-manager.nvim/tests/icons_spec.lua:31: Expected objects to be the same.
+            Passed in:
+            (boolean) false
+            Expected:
+            (boolean) true
+            
+            stack traceback:
+            	.../wwmac/plugins/scratch-manager.nvim/tests/icons_spec.lua:31: in function <.../wwmac/plugins/scratch-manager.nvim/tests/icons_spec.lua:27>
+            	
+[32mSuccess[0m	||	scratch-manager.icons get_icon_for_file handles known extensions	
+[33mPending[0m	||	scratch-manager.icons nerd font vs unicode fallback logic	
+[33mPending[0m	||	scratch-manager.icons auto-detection of nerd font support	
+[33mPending[0m	||	scratch-manager.icons icon width validation	
+	
+[32mSuccess: [0m	1	
+[31mFailed : [0m	3	
+[31mErrors : [0m	0	
+========================================	
+Tests Failed. Exit: 1	
+	/Users/wwmac/.config/nvim/init.lua:6: in main chunk

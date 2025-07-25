@@ -1,0 +1,413 @@
+*scratch-manager.txt*    Professional scratch buffer management for Neovim
+
+Author: scratch-manager.nvim
+License: MIT
+
+==============================================================================
+CONTENTS                                                *scratch-manager-contents*
+
+1. Introduction ............................ |scratch-manager-introduction|
+2. Requirements ............................ |scratch-manager-requirements|
+3. Installation ............................ |scratch-manager-installation|
+4. Configuration ........................... |scratch-manager-configuration|
+5. Usage ................................... |scratch-manager-usage|
+6. Commands ................................ |scratch-manager-commands|
+7. Functions ............................... |scratch-manager-functions|
+8. Keymaps ................................. |scratch-manager-keymaps|
+9. Health Check ............................ |scratch-manager-health|
+10. Examples ............................... |scratch-manager-examples|
+11. Troubleshooting ........................ |scratch-manager-troubleshooting|
+
+==============================================================================
+1. INTRODUCTION                                     *scratch-manager-introduction*
+
+scratch-manager.nvim provides professional scratch buffer management for
+Neovim, enhancing folke/snacks.nvim with intelligent buffer persistence,
+customizable styling, and seamless workflow integration.
+
+Features:~
+• Smart buffer management with automatic persistence and reload
+• Customizable styling with configurable borders, colors, and positioning
+• Multiple filetype support with language-aware detection
+• Session persistence - scratch buffers survive across Neovim restarts
+• Intuitive keymaps for quick access and workflow integration
+• Comprehensive health check integration for diagnostics and validation
+• Professional test suite with 16 comprehensive test cases
+
+This plugin enhances the excellent snacks.nvim scratch functionality with
+additional features for power users who need reliable, persistent scratch
+space integrated into their development workflow.
+
+==============================================================================
+2. REQUIREMENTS                                     *scratch-manager-requirements*
+
+• Neovim 0.9.0+ (for modern health check API)
+• folke/snacks.nvim (required dependency)
+• nvim-lua/plenary.nvim (optional, required for testing)
+
+==============================================================================
+3. INSTALLATION                                     *scratch-manager-installation*
+
+Using lazy.nvim:~
+>lua
+  {
+    dir = "~/plugins/scratch-manager.nvim",
+    name = "scratch-manager",
+    dependencies = { "folke/snacks.nvim" },
+    build = ":helptags doc",
+    config = function()
+      require("scratch-manager").setup()
+    end,
+  }
+<
+
+Using other plugin managers:~
+Ensure folke/snacks.nvim is installed and loaded before scratch-manager.nvim.
+
+Manual installation:~
+1. Clone or copy the plugin to your Neovim configuration
+2. Add the plugin directory to your 'runtimepath'
+3. Call |scratch-manager.setup()| in your configuration
+4. Run `:helptags doc/` to generate help tags
+
+==============================================================================
+4. CONFIGURATION                                   *scratch-manager-configuration*
+
+scratch-manager.nvim is configured through the |scratch-manager.setup()|
+function. All configuration options are optional and have sensible defaults.
+
+Default configuration:~
+>lua
+  require("scratch-manager").setup({
+    width = nil,                    -- Auto-calculated: 1/3 screen width, max 100
+    height = nil,                   -- Auto-calculated: screen height - 3
+    border_color = "#F7DC6F",       -- Border highlight color
+    dashboard_color = "#a6d189",    -- Dashboard highlight color
+    default_filetype = "markdown",  -- Default filetype for new scratch buffers
+    border_highlight = "SnacksInputBorder", -- Highlight group for borders
+    enable_keymaps = true,          -- Whether to set up default keymaps
+    keymaps = {
+      toggle = "==",                -- Toggle scratch buffer (markdown)
+      toggle_lang = "=c",           -- Toggle scratch buffer (language-aware)
+      select = "=s",                -- Select from existing scratch buffers
+      delete = "=d",                -- Delete current scratch buffer
+    }
+  })
+<
+
+Configuration Options:~
+
+*scratch-manager-config-width*
+width                   (number|nil)
+    Window width for scratch buffers. If nil, auto-calculated as 1/3 of
+    screen width with a maximum of 100 columns.
+
+*scratch-manager-config-height*
+height                  (number|nil)
+    Window height for scratch buffers. If nil, auto-calculated as screen
+    height minus 3 lines.
+
+*scratch-manager-config-border-color*
+border_color            (string)
+    Hex color code for scratch buffer borders. Default: "#F7DC6F"
+
+*scratch-manager-config-dashboard-color*
+dashboard_color         (string)
+    Hex color code for dashboard elements. Default: "#a6d189"
+
+*scratch-manager-config-default-filetype*
+default_filetype        (string)
+    Default filetype for new scratch buffers. Default: "markdown"
+
+*scratch-manager-config-border-highlight*
+border_highlight        (string)
+    Highlight group name for borders. Default: "SnacksInputBorder"
+
+*scratch-manager-config-enable-keymaps*
+enable_keymaps          (boolean)
+    Whether to set up default keymaps. Set to false to disable all default
+    keymaps and define your own. Default: true
+
+*scratch-manager-config-keymaps*
+keymaps                 (table)
+    Table of keymap definitions. Each key is a function name, each value is
+    the key sequence to bind. See |scratch-manager-keymaps| for details.
+
+==============================================================================
+5. USAGE                                                 *scratch-manager-usage*
+
+Basic Usage:~
+After installation and setup, scratch-manager provides several ways to
+interact with scratch buffers:
+
+1. Use default keymaps (if enabled):
+   • Press `==` to toggle a markdown scratch buffer
+   • Press `=c` to toggle a language-aware scratch buffer
+   • Press `=s` to select from existing scratch buffers
+   • Press `=d` to delete the current scratch buffer
+
+2. Use the command:
+   • `:ScratchPadDisplay` to toggle a scratch buffer
+
+3. Use Lua functions directly:
+   • |scratch-manager.toggle_scratch_pad()| for programmatic access
+
+Smart Buffer Management:~
+scratch-manager intelligently manages scratch buffers by:
+• Detecting the current file's directory and name
+• Reusing existing scratch buffers for the same context
+• Persisting scratch buffers across Neovim sessions
+• Providing language-aware filetype detection
+
+Window Positioning:~
+Scratch buffers open on the right side of the screen with customizable
+dimensions. The positioning is designed to not interfere with your main
+editing workflow while providing easy access to scratch space.
+
+==============================================================================
+6. COMMANDS                                             *scratch-manager-commands*
+
+*:ScratchPadDisplay*
+    Toggle a scratch buffer for the current context. This command provides
+    the same functionality as the default `==` keymap.
+
+==============================================================================
+7. FUNCTIONS                                           *scratch-manager-functions*
+
+*scratch-manager.setup({opts})*
+    Initialize scratch-manager with the given configuration options.
+
+    Parameters:~
+        {opts} (table|nil) Configuration options. See |scratch-manager-configuration|
+
+    Example:~
+>lua
+        require("scratch-manager").setup({
+          border_color = "#FF6B6B",
+          enable_keymaps = false,
+        })
+<
+
+*scratch-manager.toggle_scratch_pad({file_type})*
+    Toggle a scratch buffer with optional filetype specification.
+
+    Parameters:~
+        {file_type} (string|nil) Optional filetype to use for new scratch
+                                 buffers. If nil, uses language-aware detection.
+
+    Example:~
+>lua
+        -- Toggle with language-aware detection
+        require("scratch-manager").toggle_scratch_pad()
+
+        -- Toggle with specific filetype
+        require("scratch-manager").toggle_scratch_pad("lua")
+<
+
+*scratch-manager.open_new_scratch_pad({config})*
+    Open a new scratch buffer with the given configuration.
+
+    Parameters:~
+        {config} (table) Buffer configuration table with width, height, ft,
+                         fmtName fields.
+
+    Note: This is a lower-level function. Most users should use
+    |scratch-manager.toggle_scratch_pad()| instead.
+
+*scratch-manager.open_scratch({config})*
+    Open an existing scratch buffer with the given configuration.
+
+    Parameters:~
+        {config} (table) Buffer configuration table with file, icon, name,
+                         ft, and window options.
+
+    Note: This is a lower-level function. Most users should use
+    |scratch-manager.toggle_scratch_pad()| instead.
+
+*scratch-manager.find_existing_scratch_pad({buffers}, {config})*
+    Find an existing scratch buffer matching the current context.
+
+    Parameters:~
+        {buffers} (table) List of existing scratch buffers from snacks.nvim
+        {config}  (table) Current buffer configuration
+
+    Returns:~
+        (table|nil) Existing scratch buffer info or nil if not found
+
+    Note: This is an internal function used by the toggle functionality.
+
+*scratch-manager.delete_current_scratch_pad()*
+    Delete the current scratch buffer file from disk.
+
+    Note: This permanently removes the scratch buffer file. Use with caution.
+
+==============================================================================
+8. KEYMAPS                                               *scratch-manager-keymaps*
+
+Default keymaps (when enable_keymaps = true):~
+
+Command                 Default Key     Description~
+toggle                  ==              Toggle scratch buffer (markdown)
+toggle_lang             =c              Toggle scratch buffer (language-aware)
+select                  =s              Select from existing scratch buffers
+delete                  =d              Delete current scratch buffer
+
+Custom keymaps:~
+To use custom keymaps, set enable_keymaps = false and define your own:
+
+>lua
+  require("scratch-manager").setup({
+    enable_keymaps = false,
+  })
+
+  -- Define custom keymaps
+  vim.keymap.set("n", "<leader>st", function()
+    require("scratch-manager").toggle_scratch_pad()
+  end, { desc = "Toggle Scratch Buffer" })
+
+  vim.keymap.set("n", "<leader>sm", function()
+    require("scratch-manager").toggle_scratch_pad("markdown")
+  end, { desc = "Toggle Markdown Scratch" })
+<
+
+Alternatively, customize the default keymaps:~
+
+>lua
+  require("scratch-manager").setup({
+    keymaps = {
+      toggle = "<leader>st",
+      toggle_lang = "<leader>sc",
+      select = "<leader>ss",
+      delete = "<leader>sd",
+    }
+  })
+<
+
+==============================================================================
+9. HEALTH CHECK                                         *scratch-manager-health*
+
+scratch-manager includes a comprehensive health check system to diagnose
+configuration and functionality issues.
+
+Run the health check:~
+>vim
+  :checkhealth scratch-manager
+<
+
+The health check validates:~
+• Neovim version compatibility (requires 0.9.0+)
+• Required dependencies (snacks.nvim)
+• Optional dependencies (plenary.nvim for testing)
+• Plugin configuration and setup status
+• Available commands and keymaps
+• Core function availability
+• Snacks.nvim integration
+• Test suite availability
+• Documentation completeness
+
+Health check sections:~
+• scratch-manager Neovim Compatibility
+• scratch-manager Dependencies
+• scratch-manager Configuration
+• scratch-manager Commands & Keymaps
+• scratch-manager Functionality
+• scratch-manager Test Suite
+• scratch-manager Documentation
+
+==============================================================================
+10. EXAMPLES                                           *scratch-manager-examples*
+
+Basic setup with defaults:~
+>lua
+  require("scratch-manager").setup()
+<
+
+Custom styling:~
+>lua
+  require("scratch-manager").setup({
+    border_color = "#FF6B6B",
+    dashboard_color = "#4ECDC4",
+    default_filetype = "python",
+  })
+<
+
+Custom window sizing:~
+>lua
+  require("scratch-manager").setup({
+    width = 120,
+    height = 40,
+  })
+<
+
+Disable default keymaps and use custom ones:~
+>lua
+  require("scratch-manager").setup({
+    enable_keymaps = false,
+  })
+
+  -- Custom keymaps with leader key
+  local sm = require("scratch-manager")
+  vim.keymap.set("n", "<leader>st", sm.toggle_scratch_pad,
+    { desc = "Toggle Scratch Buffer" })
+  vim.keymap.set("n", "<leader>sl", function()
+    sm.toggle_scratch_pad("lua")
+  end, { desc = "Toggle Lua Scratch" })
+<
+
+Integration with which-key.nvim:~
+>lua
+  require("which-key").register({
+    ["<leader>s"] = {
+      name = "Scratch",
+      t = { function() require("scratch-manager").toggle_scratch_pad() end,
+            "Toggle Scratch" },
+      l = { function() require("scratch-manager").toggle_scratch_pad("lua") end,
+            "Lua Scratch" },
+      m = { function() require("scratch-manager").toggle_scratch_pad("markdown") end,
+            "Markdown Scratch" },
+    }
+  })
+<
+
+==============================================================================
+11. TROUBLESHOOTING                               *scratch-manager-troubleshooting*
+
+Common Issues:~
+
+Q: Scratch buffers don't persist across sessions
+A: Ensure snacks.nvim is properly configured and scratch files are being
+   saved to a persistent location. Check `:checkhealth scratch-manager`
+   for configuration issues.
+
+Q: Keymaps don't work
+A: Verify that enable_keymaps = true in your configuration, or that you've
+   defined custom keymaps if you disabled the defaults.
+
+Q: "module 'snacks' not found" error
+A: Install folke/snacks.nvim as a dependency. scratch-manager requires
+   snacks.nvim to function.
+
+Q: Health check shows warnings
+A: Run `:checkhealth scratch-manager` and follow the recommendations in
+   the output. Most warnings indicate missing optional dependencies or
+   incomplete setup.
+
+Q: Scratch buffers open in wrong location
+A: Customize the width and height options in your configuration, or check
+   if other plugins are interfering with window positioning.
+
+Getting Help:~
+1. Run `:checkhealth scratch-manager` for diagnostic information
+2. Check this help documentation: `:help scratch-manager`
+3. Review your configuration against the examples in |scratch-manager-examples|
+4. Ensure all dependencies are properly installed
+
+Testing:~
+Run the test suite to verify functionality:
+>vim
+  :PlenaryBustedFile tests/basic_spec.lua
+<
+
+==============================================================================
+
+vim:tw=78:ts=8:ft=help:norl:

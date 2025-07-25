@@ -1,0 +1,100 @@
+Starting...Scheduling: tests/scratch_manager_spec.lua
+Scheduling: tests/ui_spec.lua
+Scheduling: tests/selection_spec.lua
+Scheduling: tests/icons_spec.lua
+Error detected while processing /Users/wwmac/.config/nvim/init.lua:
+E5113: Error while calling lua chunk: /Users/wwmac/.config/nvim/init.lua:6: Vim:E185: Cannot find color scheme 'catppuccin'
+stack traceback:
+	[C]: in function 'colorscheme'
+	/Users/wwmac/.config/nvim/init.lua:6: in main chunk
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/icons_spec.lua	
+[32mSuccess[0m	||	scratch-manager.icons get_icon_for_file handles files with no extension	
+[32mSuccess[0m	||	scratch-manager.icons get_icon_for_file handles files with empty extension	
+[32mSuccess[0m	||	scratch-manager.icons get_icon_for_file handles files with spaces in name and no extension	
+[32mSuccess[0m	||	scratch-manager.icons get_icon_for_file handles known extensions	
+[33mPending[0m	||	scratch-manager.icons nerd font vs unicode fallback logic	
+[33mPending[0m	||	scratch-manager.icons auto-detection of nerd font support	
+[33mPending[0m	||	scratch-manager.icons icon width validation	
+	
+[32mSuccess: [0m	4	
+[31mFailed : [0m	0	
+[31mErrors : [0m	0	
+========================================	
+Error detected while processing /Users/wwmac/.config/nvim/init.lua:
+E5113: Error while calling lua chunk: /Users/wwmac/.config/nvim/init.lua:6: Vim:E185: Cannot find color scheme 'catppuccin'
+stack traceback:
+	[C]: in function 'colorscheme'
+	/Users/wwmac/.config/nvim/init.lua:6: in main chunk
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/selection_spec.lua	
+[32mSuccess[0m	||	scratch-manager.selection custom selection UI creation should handle empty items list	
+[32mSuccess[0m	||	scratch-manager.selection custom selection UI creation should create selection UI with valid items	
+[32mSuccess[0m	||	scratch-manager.selection item navigation and selection should handle navigation keys correctly	
+[32mSuccess[0m	||	scratch-manager.selection item navigation and selection should handle selection and cancellation keys	
+[32mSuccess[0m	||	scratch-manager.selection key mapping and event handling should set up proper keymaps during UI creation	
+[32mSuccess[0m	||	scratch-manager.selection display updates and rendering should update selection display without errors	
+[32mSuccess[0m	||	scratch-manager.selection window management should close selection UI properly	
+[32mSuccess[0m	||	scratch-manager.selection window management should handle window cleanup on buffer leave	
+	
+[32mSuccess: [0m	8	
+[31mFailed : [0m	0	
+[31mErrors : [0m	0	
+========================================	
+Error detected while processing /Users/wwmac/.config/nvim/init.lua:
+E5113: Error while calling lua chunk: /Users/wwmac/.config/nvim/init.lua:6: Vim:E185: Cannot find color scheme 'catppuccin'
+stack traceback:
+	[C]: in function 'colorscheme'
+	/Users/wwmac/.config/nvim/init.lua:6: in main chunk
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/ui_spec.lua	
+[32mSuccess[0m	||	scratch-manager.ui optimal layout calculation should calculate layout for empty items	
+[32mSuccess[0m	||	scratch-manager.ui optimal layout calculation should calculate layout for items with content	
+[32mSuccess[0m	||	scratch-manager.ui column width distribution should distribute widths proportionally when constrained	
+[32mSuccess[0m	||	scratch-manager.ui path truncation logic should not truncate short paths	
+[32mSuccess[0m	||	scratch-manager.ui path truncation logic should truncate long paths intelligently	
+[32mSuccess[0m	||	scratch-manager.ui path truncation logic should handle edge cases	
+[32mSuccess[0m	||	scratch-manager.ui item line formatting should format item lines correctly	
+[32mSuccess[0m	||	scratch-manager.ui item line formatting should handle selected items	
+[32mSuccess[0m	||	scratch-manager.ui item line formatting should handle items with missing data	
+[32mSuccess[0m	||	scratch-manager.ui dynamic window sizing should respect minimum window width	
+[32mSuccess[0m	||	scratch-manager.ui dynamic window sizing should respect maximum window width	
+[32mSuccess[0m	||	scratch-manager.ui internal helper functions should extract scratch filenames correctly	
+[32mSuccess[0m	||	scratch-manager.ui internal helper functions should handle git branch extraction	
+	
+[32mSuccess: [0m	13	
+[31mFailed : [0m	0	
+[31mErrors : [0m	0	
+========================================	
+Error detected while processing /Users/wwmac/.config/nvim/init.lua:
+E5113: Error while calling lua chunk: /Users/wwmac/.config/nvim/init.lua:6: Vim:E185: Cannot find color scheme 'catppuccin'
+stack traceback:
+	[C]: in function 'colorscheme'
+	/Users/wwmac/.config/nvim/init.lua:6: in main chunk
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/scratch_manager_spec.lua	
+[32mSuccess[0m	||	scratch-manager setup should initialize with default config	
+[32mSuccess[0m	||	scratch-manager setup should merge user config with defaults	
+[32mSuccess[0m	||	scratch-manager setup should merge nested keymap config	
+[32mSuccess[0m	||	scratch-manager setup should handle nil config gracefully	
+[32mSuccess[0m	||	scratch-manager setup should handle empty config gracefully	
+[32mSuccess[0m	||	scratch-manager core functionality should open new scratch pad	
+[32mSuccess[0m	||	scratch-manager core functionality should open existing scratch pad	
+[32mSuccess[0m	||	scratch-manager core functionality should find existing scratch pad	
+[32mSuccess[0m	||	scratch-manager core functionality should return nil when scratch pad not found	
+[32mSuccess[0m	||	scratch-manager error handling should assert when config missing path	
+[32mSuccess[0m	||	scratch-manager error handling should assert when config missing name	
+[32mSuccess[0m	||	scratch-manager error handling should handle empty buffers list	
+[32mSuccess[0m	||	scratch-manager error handling should handle buffers with missing cwd	
+[32mSuccess[0m	||	scratch-manager integration should toggle scratch pad without errors	
+[32mSuccess[0m	||	scratch-manager integration should toggle scratch pad with filetype	
+[32mSuccess[0m	||	scratch-manager integration should delete current scratch pad without errors	
+	
+[32mSuccess: [0m	16	
+[31mFailed : [0m	0	
+[31mErrors : [0m	0	
+========================================	
