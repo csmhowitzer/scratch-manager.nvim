@@ -12,8 +12,15 @@ local ui = require("scratch-manager.ui")
 local utils = require("scratch-manager.utils")
 local selection = require("scratch-manager.selection")
 
+---@class ScratchManagerHighlights
+---@field border table|nil Select list floating window border highlight
+---@field separator table|nil Header separator line highlight (defaults to border if not set)
+---@field header table|nil Header text color highlight
+
 ---@class ScratchManagerUIConfig
 ---@field show_git_branch boolean Whether to show git branch column (default: true)
+---@field show_path boolean Whether to show path column (default: true)
+---@field show_icon boolean Whether to show icon column (default: true)
 ---@field filename_width number Fixed width for filename column (default: 25)
 ---@field branch_width number Fixed width for branch column (default: 15)
 ---@field icon_width number Fixed width for icon column (default: 3)
@@ -25,6 +32,7 @@ local selection = require("scratch-manager.selection")
 ---@field dashboard_color string Dashboard highlight color
 ---@field default_filetype string Default filetype for new scratch buffers
 ---@field border_highlight string Highlight group for borders
+---@field highlights ScratchManagerHighlights|nil Highlight group overrides
 ---@field keymaps ScratchManagerKeymaps Keymap configuration
 ---@field ui ScratchManagerUIConfig UI configuration options
 ---@field enable_keymaps boolean Whether to set up default keymaps
@@ -58,6 +66,11 @@ local default_config = {
   dashboard_color = "#a6d189",
   default_filetype = "markdown",
   border_highlight = "SnacksInputBorder",
+  highlights = {
+    border = { fg = "#89b4fa", bold = true },     -- Blue for selection list border
+    separator = { fg = "#89b4fa", bold = true },  -- Blue for separator line (matches border by default)
+    header = { fg = "#a6d189", bold = true },     -- Green for selection list header
+  },
   keymaps = {
     toggle = "==",        -- Markdown scratch buffer toggle
     toggle_lang = "=c",   -- Language-aware scratch buffer toggle
@@ -66,6 +79,8 @@ local default_config = {
   },
   ui = {
     show_git_branch = true,
+    show_path = true,
+    show_icon = true,
     filename_width = 25,
     branch_width = 15,
     icon_width = 3,
@@ -181,31 +196,35 @@ end
 ---Define highlight groups for scratch manager UI
 ---@private
 local function define_highlights()
-  -- Window titles - matches m_augment footer color
+  local config = get_config()
+  local hl = config.highlights or {}
+
+  -- Window titles - matches m_augment footer color (not configurable)
   vim.api.nvim_set_hl(0, "ScratchManagerTitle", {
     fg = "#74c7ec", -- Same as m_augment AugmentChatFooter
-    bold = true
+    bold = true,
+    italic = true -- Match m_augment footer style
   })
 
-  -- Scratch Buffer Border - preserve existing default
+  -- Scratch Buffer Border - preserve existing default (not configurable)
   vim.api.nvim_set_hl(0, "ScratchManagerBorder", {
     fg = "#F7DC6F", -- Current scratch buffer border color
     bold = true
   })
 
-  -- Select list Border - distinct blue color
-  vim.api.nvim_set_hl(0, "ScratchManagerSelectBorder", {
-    fg = "#89b4fa", -- Blue for selection list border
-    bold = true
-  })
+  -- Select list Border - configurable
+  vim.api.nvim_set_hl(0, "ScratchManagerSelectBorder",
+    hl.border or { fg = "#89b4fa", bold = true })
 
-  -- Select list Header - green color
-  vim.api.nvim_set_hl(0, "ScratchManagerSelectHeader", {
-    fg = "#a6d189", -- Green for selection list header
-    bold = true
-  })
+  -- Select list Separator - configurable (defaults to border if not set)
+  vim.api.nvim_set_hl(0, "ScratchManagerSeparator",
+    hl.separator or hl.border or { fg = "#89b4fa", bold = true })
 
-  -- Selection highlight for active item
+  -- Select list Header - configurable
+  vim.api.nvim_set_hl(0, "ScratchManagerSelectHeader",
+    hl.header or { fg = "#a6d189", bold = true })
+
+  -- Selection highlight for active item (not configurable)
   vim.api.nvim_set_hl(0, "ScratchManagerSelected", {
     bg = "#45475a", -- Subtle background highlight
     bold = true

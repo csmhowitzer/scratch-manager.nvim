@@ -59,12 +59,19 @@ function M.calculate_optimal_layout(items, config)
   
   -- Start with actual content widths (no truncation)
   local selector_width = 2
-  local icon_width = config.ui.icon_width
+  local icon_width = config.ui.show_icon and config.ui.icon_width or 0
   local filename_width = max_filename
   local branch_width = config.ui.show_git_branch and max_branch or 0
-  local cwd_width = max_cwd
-  local padding = 4 -- spaces between columns
-  
+  local cwd_width = config.ui.show_path and max_cwd or 0
+
+  -- Calculate padding based on visible columns (spaces between columns)
+  local visible_columns = 1 -- selector always visible
+  if config.ui.show_icon then visible_columns = visible_columns + 1 end
+  visible_columns = visible_columns + 1 -- filename always visible
+  if config.ui.show_git_branch then visible_columns = visible_columns + 1 end
+  if config.ui.show_path then visible_columns = visible_columns + 1 end
+  local padding = (visible_columns - 1) -- one space between each visible column
+
   local ideal_width = selector_width + icon_width + filename_width + branch_width + cwd_width + padding
   
   -- Apply constraints
@@ -75,11 +82,15 @@ function M.calculate_optimal_layout(items, config)
   -- If we hit max width, we need to truncate proportionally
   if ideal_width > max_width then
     local available_width = max_width - selector_width - icon_width - padding
-    local content_ratio = available_width / (filename_width + branch_width + cwd_width)
-    
-    filename_width = math.floor(filename_width * content_ratio)
-    branch_width = config.ui.show_git_branch and math.floor(branch_width * content_ratio) or 0
-    cwd_width = available_width - filename_width - branch_width
+    local total_content_width = filename_width + branch_width + cwd_width
+
+    if total_content_width > 0 then
+      local content_ratio = available_width / total_content_width
+
+      filename_width = math.floor(filename_width * content_ratio)
+      branch_width = config.ui.show_git_branch and math.floor(branch_width * content_ratio) or 0
+      cwd_width = config.ui.show_path and (available_width - filename_width - branch_width) or 0
+    end
   end
   
   return {
@@ -136,21 +147,26 @@ function M.format_item_line(item, widths, is_selected, config)
   -- Extract components
   local filename = get_scratch_filename(item.name or "")
   local cwd = item.cwd and vim.fn.fnamemodify(item.cwd, ":p:~") or ""
-  local branch = config.ui.show_git_branch and get_git_branch(item.cwd) or ""
+  local branch = config.ui.show_git_branch and get_git_branch(item.cwd) or nil
 
-  -- Get icon with color support (v2.0 enhancement)
-  -- Use filename for better icon detection, with filetype as hint
-  -- This ensures correct icons: markdown scratch buffers get markdown icons,
-  -- even if the filename suggests a different type (e.g., "Project.cs" with markdown content)
-  local icon_result = icon_provider.get_icon_with_color(filename, item.ft or "")
-  local icon = icon_result.icon
-  local icon_hl = icon_result.hl
+  -- Get icon with color support (v2.0 enhancement) - only if icons are enabled
+  local icon = ""
+  local icon_hl = nil
 
-  -- Ensure icon is NEVER nil or empty for consistent spacing
-  -- Every row must have an icon to maintain column alignment
-  if not icon or icon == "" then
-    icon = "󰈔"  -- Professional fallback icon for unknown file types
-    icon_hl = nil  -- No highlight for fallback
+  if config.ui.show_icon then
+    -- Use filename for better icon detection, with filetype as hint
+    -- This ensures correct icons: markdown scratch buffers get markdown icons,
+    -- even if the filename suggests a different type (e.g., "Project.cs" with markdown content)
+    local icon_result = icon_provider.get_icon_with_color(filename, item.ft or "")
+    icon = icon_result.icon
+    icon_hl = icon_result.hl
+
+    -- Ensure icon is NEVER nil or empty for consistent spacing
+    -- Every row must have an icon to maintain column alignment
+    if not icon or icon == "" then
+      icon = "󰈔"  -- Professional fallback icon for unknown file types
+      icon_hl = nil  -- No highlight for fallback
+    end
   end
 
   -- Truncate filename if necessary
@@ -171,9 +187,9 @@ function M.format_item_line(item, widths, is_selected, config)
   -- Use centralized formatting to ensure consistency with header
   local formatted_line = utils.format_columns(" ", icon, filename, branch, cwd, widths, config)
 
-  -- Calculate icon highlight position if we have colored icons
+  -- Calculate icon highlight position if we have colored icons and icons are enabled
   local highlights = nil
-  if icon_hl then
+  if config.ui.show_icon and icon_hl then
     -- Icon position calculation based on utils.format_columns structure:
     -- Format: "selector icon filename branch cwd" (spaces between each part)
     -- Icon starts after: selector (1 char) + space (1 char) = position 2

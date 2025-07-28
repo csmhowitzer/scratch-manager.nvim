@@ -20,21 +20,37 @@ function M.format_columns(selector, icon, filename, branch, cwd, widths, config)
   local parts = {}
 
   if is_header then
-    -- Header: add left padding to align with content rows (selector + icon)
-    local left_padding = string.rep(" ", 1 + widths.icon_width) -- selector + icon (no extra space)
+    -- Header: calculate left padding based on visible columns
+    local left_padding = ""
+    if config.ui.show_icon then
+      left_padding = string.rep(" ", 1 + widths.icon_width) -- selector + icon width + space
+    else
+      left_padding = "  " -- selector + space (no icon column)
+    end
     table.insert(parts, left_padding .. string.format("%-" .. widths.filename_width .. "s", filename))
   else
-    -- Content: include selector and icon with proper spacing
+    -- Content: include selector
     table.insert(parts, selector)
-    table.insert(parts, string.format("%-" .. widths.icon_width .. "s", icon))
+
+    -- Include icon column if enabled
+    if config.ui.show_icon then
+      table.insert(parts, string.format("%-" .. widths.icon_width .. "s", icon))
+    end
+
+    -- Always include filename
     table.insert(parts, string.format("%-" .. widths.filename_width .. "s", filename))
   end
 
+  -- Include branch column if enabled and branch provided
   if config.ui.show_git_branch and branch then
     table.insert(parts, string.format("%-" .. widths.branch_width .. "s", branch))
   end
 
-  table.insert(parts, cwd)
+  -- Include path column if enabled
+  if config.ui.show_path then
+    table.insert(parts, cwd)
+  end
+
   return table.concat(parts, " ")
 end
 

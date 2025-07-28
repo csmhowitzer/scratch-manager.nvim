@@ -1,4 +1,5 @@
 Starting...Scheduling: tests/scratch_manager_spec.lua
+Scheduling: tests/icon_provider_spec.lua
 Scheduling: tests/ui_spec.lua
 Scheduling: tests/selection_spec.lua
 Scheduling: tests/icons_spec.lua
@@ -29,20 +30,55 @@ stack traceback:
 	/Users/wwmac/.config/nvim/init.lua:6: in main chunk
 
 ========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/icon_provider_spec.lua	
+[32mSuccess[0m	||	scratch-manager.icon_provider provider detection detects mini.icons when available and setup	
+[32mSuccess[0m	||	scratch-manager.icon_provider provider detection falls back to nvim-web-devicons when mini.icons not available	
+[32mSuccess[0m	||	scratch-manager.icon_provider provider detection returns nil when no providers available	
+[32mSuccess[0m	||	scratch-manager.icon_provider provider detection handles directory type correctly with devicons	
+[32mSuccess[0m	||	scratch-manager.icon_provider get_icon_with_color returns colored icon when provider available	
+[32mSuccess[0m	||	scratch-manager.icon_provider get_icon_with_color falls back to current icons when no provider	
+[32mSuccess[0m	||	scratch-manager.icon_provider get_icon_with_color handles empty icon gracefully	
+[32mSuccess[0m	||	scratch-manager.icon_provider utility functions has_colored_icons returns true when provider available	
+[32mSuccess[0m	||	scratch-manager.icon_provider utility functions has_colored_icons returns false when no provider	
+[32mSuccess[0m	||	scratch-manager.icon_provider utility functions get_provider_name returns correct provider	
+[32mSuccess[0m	||	scratch-manager.icon_provider fallback behavior preserves existing icon logic	
+[32mSuccess[0m	||	scratch-manager.icon_provider fallback behavior handles filetype preference correctly	
+	
+[32mSuccess: [0m	12	
+[31mFailed : [0m	0	
+[31mErrors : [0m	0	
+========================================	
+Error detected while processing /Users/wwmac/.config/nvim/init.lua:
+E5113: Error while calling lua chunk: /Users/wwmac/.config/nvim/init.lua:6: Vim:E185: Cannot find color scheme 'catppuccin'
+stack traceback:
+	[C]: in function 'colorscheme'
+	/Users/wwmac/.config/nvim/init.lua:6: in main chunk
+
+========================================	
 Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/selection_spec.lua	
 [32mSuccess[0m	||	scratch-manager.selection custom selection UI creation should handle empty items list	
 [32mSuccess[0m	||	scratch-manager.selection custom selection UI creation should create selection UI with valid items	
 [32mSuccess[0m	||	scratch-manager.selection item navigation and selection should handle navigation keys correctly	
 [32mSuccess[0m	||	scratch-manager.selection item navigation and selection should handle selection and cancellation keys	
 [32mSuccess[0m	||	scratch-manager.selection key mapping and event handling should set up proper keymaps during UI creation	
-[32mSuccess[0m	||	scratch-manager.selection display updates and rendering should update selection display without errors	
+[31mFail[0m	||	scratch-manager.selection display updates and rendering should update selection display without errors	
+            ...ac/plugins/scratch-manager.nvim/tests/selection_spec.lua:155: Expected objects to be the same.
+            Passed in:
+            (nil)
+            Expected:
+            type function
+            
+            stack traceback:
+            	...ac/plugins/scratch-manager.nvim/tests/selection_spec.lua:155: in function <...ac/plugins/scratch-manager.nvim/tests/selection_spec.lua:153>
+            	
 [32mSuccess[0m	||	scratch-manager.selection window management should close selection UI properly	
 [32mSuccess[0m	||	scratch-manager.selection window management should handle window cleanup on buffer leave	
 	
-[32mSuccess: [0m	8	
-[31mFailed : [0m	0	
+[32mSuccess: [0m	7	
+[31mFailed : [0m	1	
 [31mErrors : [0m	0	
 ========================================	
+Tests Failed. Exit: 1	
 Error detected while processing /Users/wwmac/.config/nvim/init.lua:
 E5113: Error while calling lua chunk: /Users/wwmac/.config/nvim/init.lua:6: Vim:E185: Cannot find color scheme 'catppuccin'
 stack traceback:
