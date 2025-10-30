@@ -1,0 +1,178 @@
+Starting...Scheduling: tests/scratch_manager_spec.lua
+Scheduling: tests/icon_provider_spec.lua
+Error detected while processing /Users/wwmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:
+E5113: Error while calling lua chunk: ...wmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:16: plenary.nvim is required for testing
+stack traceback:
+	[C]: in function 'error'
+	...wmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:16: in main chunk
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/scratch_manager_spec.lua	
+[32mSuccess[0m	||	scratch-manager setup should initialize with default config	
+[32mSuccess[0m	||	scratch-manager setup should merge user config with defaults	
+[32mSuccess[0m	||	scratch-manager setup should merge nested keymap config	
+[32mSuccess[0m	||	scratch-manager setup should handle nil config gracefully	
+[32mSuccess[0m	||	scratch-manager setup should handle empty config gracefully	
+[32mSuccess[0m	||	scratch-manager core functionality should open new scratch pad	
+[32mSuccess[0m	||	scratch-manager core functionality should open existing scratch pad	
+[32mSuccess[0m	||	scratch-manager core functionality should find existing scratch pad	
+[32mSuccess[0m	||	scratch-manager core functionality should return nil when scratch pad not found	
+[32mSuccess[0m	||	scratch-manager error handling should assert when config missing path	
+[32mSuccess[0m	||	scratch-manager error handling should assert when config missing name	
+[32mSuccess[0m	||	scratch-manager error handling should handle empty buffers list	
+[32mSuccess[0m	||	scratch-manager error handling should handle buffers with missing cwd	
+[32mSuccess[0m	||	scratch-manager integration should toggle scratch pad without errors	
+[32mSuccess[0m	||	scratch-manager integration should toggle scratch pad with filetype	
+[32mSuccess[0m	||	scratch-manager integration should delete current scratch pad without errors	
+	
+[32mSuccess: [0m	16	
+[31mFailed : [0m	0	
+[31mErrors : [0m	0	
+========================================	
+Scheduling: tests/ui_spec.lua
+Error detected while processing /Users/wwmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:
+E5113: Error while calling lua chunk: ...wmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:16: plenary.nvim is required for testing
+stack traceback:
+	[C]: in function 'error'
+	...wmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:16: in main chunk
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/icon_provider_spec.lua	
+[32mSuccess[0m	||	scratch-manager.icon_provider provider detection detects mini.icons when available and setup	
+[32mSuccess[0m	||	scratch-manager.icon_provider provider detection falls back to nvim-web-devicons when mini.icons not available	
+[32mSuccess[0m	||	scratch-manager.icon_provider provider detection returns nil when no providers available	
+[32mSuccess[0m	||	scratch-manager.icon_provider provider detection handles directory type correctly with devicons	
+[32mSuccess[0m	||	scratch-manager.icon_provider get_icon_with_color returns colored icon when provider available	
+[32mSuccess[0m	||	scratch-manager.icon_provider get_icon_with_color falls back to current icons when no provider	
+[32mSuccess[0m	||	scratch-manager.icon_provider get_icon_with_color handles empty icon gracefully	
+[32mSuccess[0m	||	scratch-manager.icon_provider utility functions has_colored_icons returns true when provider available	
+[32mSuccess[0m	||	scratch-manager.icon_provider utility functions has_colored_icons returns false when no provider	
+[32mSuccess[0m	||	scratch-manager.icon_provider utility functions get_provider_name returns correct provider	
+[32mSuccess[0m	||	scratch-manager.icon_provider fallback behavior preserves existing icon logic	
+[32mSuccess[0m	||	scratch-manager.icon_provider fallback behavior handles filetype preference correctly	
+	
+[32mSuccess: [0m	12	
+[31mFailed : [0m	0	
+[31mErrors : [0m	0	
+========================================	
+Scheduling: tests/utils_spec.lua
+Error detected while processing /Users/wwmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:
+E5113: Error while calling lua chunk: ...wmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:16: plenary.nvim is required for testing
+stack traceback:
+	[C]: in function 'error'
+	...wmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:16: in main chunk
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/ui_spec.lua	
+[32mSuccess[0m	||	scratch-manager.ui optimal layout calculation should calculate layout for empty items	
+[32mSuccess[0m	||	scratch-manager.ui optimal layout calculation should calculate layout for items with content	
+[32mSuccess[0m	||	scratch-manager.ui column width distribution should distribute widths proportionally when constrained	
+[32mSuccess[0m	||	scratch-manager.ui item line formatting should format item lines correctly	
+[32mSuccess[0m	||	scratch-manager.ui item line formatting should handle selected items	
+[32mSuccess[0m	||	scratch-manager.ui item line formatting should handle items with missing data	
+[32mSuccess[0m	||	scratch-manager.ui dynamic window sizing should respect minimum window width	
+[32mSuccess[0m	||	scratch-manager.ui dynamic window sizing should respect maximum window width	
+[32mSuccess[0m	||	scratch-manager.ui internal helper functions should extract scratch filenames correctly	
+	
+[32mSuccess: [0m	9	
+[31mFailed : [0m	0	
+[31mErrors : [0m	0	
+========================================	
+Scheduling: tests/selection_spec.lua
+Error detected while processing /Users/wwmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:
+E5113: Error while calling lua chunk: ...wmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:16: plenary.nvim is required for testing
+stack traceback:
+	[C]: in function 'error'
+	...wmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:16: in main chunksh: line 0: cd: /this/directory/does/not/exist: No such file or directory
+sh: line 0: cd: /home/user: No such file or directory
+sh: line 0: cd: /very/long/path: No such file or directory
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/utils_spec.lua	
+[32mSuccess[0m	||	scratch-manager.utils format_columns should format basic columns correctly	
+[32mSuccess[0m	||	scratch-manager.utils format_columns should handle header rows with file counter	
+[32mSuccess[0m	||	scratch-manager.utils format_columns should handle missing optional columns	
+[32mSuccess[0m	||	scratch-manager.utils get_git_branch should return empty string for nil directory	
+[32mSuccess[0m	||	scratch-manager.utils get_git_branch should cache git branch results	
+[32mSuccess[0m	||	scratch-manager.utils get_git_branch should handle non-git directories gracefully	
+[32mSuccess[0m	||	scratch-manager.utils get_git_branch should cache different directories separately	
+[32mSuccess[0m	||	scratch-manager.utils clear_git_cache should clear all cached git branches	
+[32mSuccess[0m	||	scratch-manager.utils get_git_cache_stats should return correct stats for empty cache	
+[32mSuccess[0m	||	scratch-manager.utils get_git_cache_stats should return correct stats for populated cache	
+[32mSuccess[0m	||	scratch-manager.utils layout constants should return default layout constants	
+[32mSuccess[0m	||	scratch-manager.utils layout constants should return a copy of constants (not reference)	
+[32mSuccess[0m	||	scratch-manager.utils layout constants should allow updating constants	
+[32mSuccess[0m	||	scratch-manager.utils layout constants should allow partial updates of constants	
+[32mSuccess[0m	||	scratch-manager.utils get_display_icon should return empty icon when show_icon is false	
+[32mSuccess[0m	||	scratch-manager.utils get_display_icon should return icon when show_icon is true	
+[32mSuccess[0m	||	scratch-manager.utils get_display_icon should return fallback icon for unknown files	
+[32mSuccess[0m	||	scratch-manager.utils get_display_icon should handle nil filename gracefully	
+[32mSuccess[0m	||	scratch-manager.utils truncate_text should not truncate short text	
+[32mSuccess[0m	||	scratch-manager.utils truncate_text should truncate long text with default ellipsis	
+[32mSuccess[0m	||	scratch-manager.utils truncate_text should truncate with custom ellipsis	
+[32mSuccess[0m	||	scratch-manager.utils truncate_text should handle edge case where max_width equals ellipsis length	
+[32mSuccess[0m	||	scratch-manager.utils truncate_text should handle edge case where max_width is less than ellipsis length	
+[32mSuccess[0m	||	scratch-manager.utils truncate_text should handle nil text	
+[32mSuccess[0m	||	scratch-manager.utils truncate_text should handle empty text	
+[32mSuccess[0m	||	scratch-manager.utils smart_truncate_path should not truncate short paths	
+[32mSuccess[0m	||	scratch-manager.utils smart_truncate_path should truncate long paths intelligently	
+[32mSuccess[0m	||	scratch-manager.utils smart_truncate_path should handle simple paths with few components	
+[32mSuccess[0m	||	scratch-manager.utils layout calculation functions analyze_content_lengths should analyze content lengths correctly	
+[32mSuccess[0m	||	scratch-manager.utils layout calculation functions analyze_content_lengths should handle empty items list	
+[32mSuccess[0m	||	scratch-manager.utils layout calculation functions analyze_content_lengths should respect show_git_branch configuration	
+[32mSuccess[0m	||	scratch-manager.utils layout calculation functions analyze_content_lengths should handle items with missing data	
+[32mSuccess[0m	||	scratch-manager.utils layout calculation functions calculate_ideal_widths should calculate ideal widths from content analysis	
+[32mSuccess[0m	||	scratch-manager.utils layout calculation functions calculate_ideal_widths should handle disabled columns	
+[32mSuccess[0m	||	scratch-manager.utils layout calculation functions calculate_ideal_widths should calculate padding correctly	
+[32mSuccess[0m	||	scratch-manager.utils layout calculation functions apply_layout_constraints should not modify widths when under screen limit but above minimum	
+[32mSuccess[0m	||	scratch-manager.utils layout calculation functions apply_layout_constraints should apply minimum width constraint	
+[32mSuccess[0m	||	scratch-manager.utils layout calculation functions apply_layout_constraints should scale columns proportionally when over screen limit	
+	
+[32mSuccess: [0m	38	
+[31mFailed : [0m	0	
+[31mErrors : [0m	0	
+========================================	
+Scheduling: tests/icons_spec.lua
+Error detected while processing /Users/wwmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:
+E5113: Error while calling lua chunk: ...wmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:16: plenary.nvim is required for testing
+stack traceback:
+	[C]: in function 'error'
+	...wmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:16: in main chunk
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/selection_spec.lua	
+[32mSuccess[0m	||	scratch-manager.selection custom selection UI creation should handle empty items list	
+[32mSuccess[0m	||	scratch-manager.selection custom selection UI creation should create selection UI with valid items	
+[32mSuccess[0m	||	scratch-manager.selection item navigation and selection should handle navigation keys correctly	
+[32mSuccess[0m	||	scratch-manager.selection item navigation and selection should handle selection and cancellation keys	
+[32mSuccess[0m	||	scratch-manager.selection key mapping and event handling should set up proper keymaps during UI creation	
+[32mSuccess[0m	||	scratch-manager.selection display updates and rendering should update selection highlighting without errors	
+[32mSuccess[0m	||	scratch-manager.selection window management should close selection UI properly	
+[32mSuccess[0m	||	scratch-manager.selection window management should handle window cleanup on buffer leave	
+	
+[32mSuccess: [0m	8	
+[31mFailed : [0m	0	
+[31mErrors : [0m	0	
+========================================	
+Error detected while processing /Users/wwmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:
+E5113: Error while calling lua chunk: ...wmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:16: plenary.nvim is required for testing
+stack traceback:
+	[C]: in function 'error'
+	...wmac/plugins/scratch-manager.nvim/tests/minimal_init.lua:16: in main chunk
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/icons_spec.lua	
+[32mSuccess[0m	||	scratch-manager.icons get_icon_for_file handles files with no extension	
+[32mSuccess[0m	||	scratch-manager.icons get_icon_for_file handles files with empty extension	
+[32mSuccess[0m	||	scratch-manager.icons get_icon_for_file handles files with spaces in name and no extension	
+[32mSuccess[0m	||	scratch-manager.icons get_icon_for_file handles known extensions	
+[32mSuccess[0m	||	scratch-manager.icons nerd font vs unicode fallback logic should use nerd font icons when available	
+[32mSuccess[0m	||	scratch-manager.icons nerd font vs unicode fallback logic should fall back to unicode when nerd font unavailable	
+[32mSuccess[0m	||	scratch-manager.icons auto-detection of nerd font support should detect nerd font availability	
+[32mSuccess[0m	||	scratch-manager.icons icon width validation should return consistent icon widths	
+[32mSuccess[0m	||	scratch-manager.icons icon width validation should handle edge cases gracefully	
+	
+[32mSuccess: [0m	9	
+[31mFailed : [0m	0	
+[31mErrors : [0m	0	
+========================================	

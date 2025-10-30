@@ -16,7 +16,7 @@ local selection_ui = {
 	items = {},
 	callback = nil,
 	selected_idx = 1,
-	max_visible_items = 5, -- Maximum items to show at once (for testing)
+	max_visible_items = 20, -- Will be set from config
 }
 
 ---Close the selection UI
@@ -59,15 +59,23 @@ local function create_header_window(config, layout, win_config)
 	-- Create header buffer
 	selection_ui.header_buf = vim.api.nvim_create_buf(false, true)
 
-	-- Build header lines
-	local header = utils.format_columns(
+	-- Build header lines with optional file counter
+	local counter_text = nil
+	if config.ui.file_counter then
+		local file_count = #selection_ui.items
+		counter_text = string.format("%d files", file_count)
+	end
+
+	local header, counter_highlight = utils.format_columns(
 		" ",
 		"",
 		"Filename",
 		config.ui.show_git_branch and "Branch" or nil,
 		config.ui.show_path and "Working Directory" or "",
 		widths,
-		config
+		config,
+		counter_text, -- Will be nil if file_counter is disabled
+		win_width -- Add window width for right-alignment calculation
 	)
 	local separator_width = win_width - 2 -- Account for window borders
 	local separator = string.rep("─", separator_width)
@@ -86,6 +94,25 @@ local function create_header_window(config, layout, win_config)
 	})
 
 	selection_ui.header_win = vim.api.nvim_open_win(selection_ui.header_buf, false, header_config)
+
+	-- Define file counter highlight group from config
+	vim.api.nvim_set_hl(0, "ScratchManagerFileCount", config.highlights.file_counter)
+
+	-- Define window title highlight group from config
+	vim.api.nvim_set_hl(0, "ScratchManagerWindowTitle", config.highlights.window_title)
+
+	-- Apply file counter highlighting if present
+	if counter_highlight then
+		local counter_ns_id = vim.api.nvim_create_namespace("scratch-manager-file-count")
+		vim.api.nvim_buf_add_highlight(
+			selection_ui.header_buf,
+			counter_ns_id,
+			counter_highlight.group,
+			0, -- First line (header)
+			counter_highlight.start_col,
+			counter_highlight.end_col
+		)
+	end
 
 	-- Apply header highlighting
 	local header_ns_id = vim.api.nvim_create_namespace("scratch-manager-header")
@@ -126,7 +153,7 @@ local function create_content_window(config, layout, win_config)
 
 	-- Create content window (positioned below header, with bottom border)
 	local content_config = vim.tbl_deep_extend("force", win_config, {
-		row = win_config.row + 2, -- Position below header
+		row = win_config.row + 3, -- Position below header (header=2 rows, so +3 to clear it)
 		height = win_config.height - 2, -- Subtract header height only
 		zindex = 10, -- Lower than header window
 		border = { "", "", "", "│", "┘", "─", "└", "│" }, -- No top border, has bottom border for footer
@@ -158,7 +185,7 @@ local function update_selection_highlighting()
 
 	-- Highlight selected item FIRST (so icon highlights can override it)
 	if selection_ui.selected_idx > 0 and selection_ui.selected_idx <= #selection_ui.items then
-		local line_idx = selection_ui.selected_idx -- Shift down by 1 from original 0-based calculation
+		local line_idx = selection_ui.selected_idx - 1 -- Convert 1-based selected_idx to 0-based buffer line
 		vim.api.nvim_buf_add_highlight(selection_ui.content_buf, ns_id, "Visual", line_idx, 0, -1)
 	end
 
@@ -172,7 +199,7 @@ local function update_selection_highlighting()
 
 	-- Set cursor position (shift down by 1 from original position with bounds checking)
 	if selection_ui.content_win and vim.api.nvim_win_is_valid(selection_ui.content_win) then
-		local cursor_line = selection_ui.selected_idx + 1 -- Shift down by 1 line
+		local cursor_line = selection_ui.selected_idx -- Convert 1-based selected_idx to 1-based cursor position
 		local buffer_line_count = vim.api.nvim_buf_line_count(selection_ui.content_buf)
 
 		-- Ensure cursor doesn't go beyond buffer bounds
@@ -183,13 +210,20 @@ local function update_selection_highlighting()
 end
 
 ---Handle key press in selection UI with scroll support
+---
+---Wrap-around navigation logic:
+---• Down (j): When near end (> items-2), wrap to position 1
+---• Up (k): When near beginning (< 2), wrap to position items-1
+---• The -2/-1 offsets account for display buffer structure and ensure
+---  smooth navigation without cursor positioning errors
+---
 ---@param key string The pressed key
 ---@param config table Configuration object
 ---@private
 local function handle_selection_key(key, config)
 	if key == "j" or key == "<Down>" then
 		-- Wrap around: if at end, go to beginning
-		if selection_ui.selected_idx > #selection_ui.items - 2 then
+		if selection_ui.selected_idx >= #selection_ui.items then
 			selection_ui.selected_idx = 1
 		else
 			selection_ui.selected_idx = selection_ui.selected_idx + 1
@@ -197,8 +231,8 @@ local function handle_selection_key(key, config)
 		update_selection_highlighting() -- Fast update, no rebuilding
 	elseif key == "k" or key == "<Up>" then
 		-- Wrap around: if at beginning, go to end
-		if selection_ui.selected_idx < 2 then
-			selection_ui.selected_idx = #selection_ui.items - 1
+		if selection_ui.selected_idx <= 1 then
+			selection_ui.selected_idx = #selection_ui.items
 		else
 			selection_ui.selected_idx = selection_ui.selected_idx - 1
 		end
@@ -237,6 +271,7 @@ function M.create_custom_selection(items, opts, callback, config)
 	selection_ui.items = items
 	selection_ui.callback = callback
 	selection_ui.selected_idx = 1
+	selection_ui.max_visible_items = config.selection.max_items
 
 	-- Calculate optimal window size and column widths
 	local layout = ui.calculate_optimal_layout(items, config)
@@ -244,10 +279,11 @@ function M.create_custom_selection(items, opts, callback, config)
 
 	-- Calculate height for window scrolling approach
 	local max_visible_items = selection_ui.max_visible_items
-	local base_height = 2 + max_visible_items + 1 -- header + separator + max items + counter
+	local base_height = 2 + max_visible_items -- header + separator + max items
 
 	-- Respect screen size limits
-	local height = math.min(base_height, math.floor(vim.o.lines * 0.8))
+	local constants = utils.get_layout_constants()
+	local height = math.min(base_height, math.floor(vim.o.lines * constants.SCREEN_HEIGHT_RATIO))
 
 	-- Build footer content following m_augment pattern with center alignment
 	local action_hints = "<CR> Select, <Esc> quit"
@@ -286,12 +322,12 @@ function M.create_custom_selection(items, opts, callback, config)
 	-- Apply custom highlight groups for all windows (including footer)
 	vim.api.nvim_set_option_value(
 		"winhighlight",
-		"FloatBorder:ScratchManagerSelectBorder,FloatTitle:ScratchManagerTitle,FloatFooter:ScratchManagerTitle",
+		"FloatBorder:ScratchManagerSelectBorder,FloatTitle:ScratchManagerWindowTitle,FloatFooter:ScratchManagerSelectFooter",
 		{ win = selection_ui.header_win }
 	)
 	vim.api.nvim_set_option_value(
 		"winhighlight",
-		"FloatBorder:ScratchManagerSelectBorder,FloatFooter:ScratchManagerTitle",
+		"FloatBorder:ScratchManagerSelectBorder,FloatFooter:ScratchManagerSelectFooter",
 		{ win = selection_ui.content_win }
 	)
 

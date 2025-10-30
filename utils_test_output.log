@@ -1,0 +1,24 @@
+Scheduling: tests/utils_spec.lua
+Error detected while processing /Users/wwmac/.config/nvim/init.lua:
+E5113: Error while calling lua chunk: /Users/wwmac/.config/nvim/init.lua:6: Vim:E185: Cannot find color scheme 'catppuccin'
+stack traceback:
+	[C]: in function 'colorscheme'
+
+========================================	
+Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/utils_spec.lua	
+[32mSuccess[0m	||	scratch-manager.utils format_columns should format basic columns correctly	
+[32mSuccess[0m	||	scratch-manager.utils format_columns should handle header rows with file counter	
+[32mSuccess[0m	||	scratch-manager.utils format_columns should handle missing optional columns	
+[32mSuccess[0m	||	scratch-manager.utils get_git_branch should return empty string for nil directory	
+[32mSuccess[0m	||	scratch-manager.utils get_git_branch should cache git branch results	
+	/Users/wwmac/.config/nvim/init.lua:6: in main chunksh: line 0: cd: /this/directory/does/not/exist: No such file or directory
+[32mSuccess[0m	||	scratch-manager.utils get_git_branch should handle non-git directories gracefully	
+[32mSuccess[0m	||	scratch-manager.utils get_git_branch should cache different directories separately	
+[32mSuccess[0m	||	scratch-manager.utils clear_git_cache should clear all cached git branches	
+[32mSuccess[0m	||	scratch-manager.utils get_git_cache_stats should return correct stats for empty cache	
+[32mSuccess[0m	||	scratch-manager.utils get_git_cache_stats should return correct stats for populated cache	
+	
+[32mSuccess: [0m	10	
+[31mFailed : [0m	0	
+[31mErrors : [0m	0	
+========================================	

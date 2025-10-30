@@ -2,7 +2,7 @@
 
 *Professional scratch buffer management for Neovim*
 
-[![Tests](https://img.shields.io/badge/tests-16%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-92%20passing-brightgreen)](tests/)
 [![Health Check](https://img.shields.io/badge/health%20check-comprehensive-blue)](#health-check)
 [![Documentation](https://img.shields.io/badge/docs-complete-success)](#documentation)
 
@@ -18,7 +18,7 @@ A powerful scratch buffer management plugin that enhances [folke/snacks.nvim](ht
 - 🔄 **Session Persistence**: Scratch buffers survive across Neovim sessions and reload intelligently
 - ⌨️ **Intuitive Keymaps**: Quick access with customizable key bindings that fit your workflow
 - 🏥 **Health Check Integration**: Comprehensive diagnostics and validation system
-- 🧪 **Professional Test Suite**: 16 comprehensive test cases ensuring reliability
+- 🧪 **Professional Test Suite**: 92 comprehensive test cases ensuring reliability
 - 📚 **Complete Documentation**: Professional help docs with 40+ searchable tags
 
 ## 📋 Requirements

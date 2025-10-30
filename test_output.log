@@ -72,10 +72,16 @@ Testing: 	/Users/wwmac/plugins/scratch-manager.nvim/tests/selection_spec.lua
             	...ac/plugins/scratch-manager.nvim/tests/selection_spec.lua:155: in function <...ac/plugins/scratch-manager.nvim/tests/selection_spec.lua:153>
             	
 [32mSuccess[0m	||	scratch-manager.selection window management should close selection UI properly	
-[32mSuccess[0m	||	scratch-manager.selection window management should handle window cleanup on buffer leave	
+[31mFail[0m	||	scratch-manager.selection window management should handle window cleanup on buffer leave	
+            ./lua/scratch-manager/selection.lua:274: attempt to index field 'selection' (a nil value)
+            
+            stack traceback:
+            	./lua/scratch-manager/selection.lua:274: in function 'create_custom_selection'
+            	...ac/plugins/scratch-manager.nvim/tests/selection_spec.lua:191: in function <...ac/plugins/scratch-manager.nvim/tests/selection_spec.lua:175>
+            	
 	
-[32mSuccess: [0m	7	
-[31mFailed : [0m	1	
+[32mSuccess: [0m	6	
+[31mFailed : [0m	2	
 [31mErrors : [0m	0	
 ========================================	
 Tests Failed. Exit: 1	

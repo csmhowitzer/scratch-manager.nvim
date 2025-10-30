@@ -25,6 +25,46 @@ describe("scratch-manager.ui", function()
           end
         end
         return table.concat(result, " ")
+      end,
+      get_git_branch = function(cwd)
+        if not cwd then return "" end
+        return "main" -- Mock git branch
+      end,
+      get_display_icon = function(filename, filetype, show_icon)
+        if not show_icon then return "", nil end
+        if filetype == "lua" then return "󰢱", nil
+        elseif filetype == "markdown" then return "󰍔", nil
+        else return "󰈔", nil end
+      end,
+      truncate_text = function(text, max_width)
+        if not text or #text <= max_width then return text or "" end
+        return text:sub(1, max_width - 3) .. "..."
+      end,
+      smart_truncate_path = function(path, max_width)
+        if #path <= max_width then return path end
+        return "..." .. path:sub(-(max_width - 3))
+      end,
+      analyze_content_lengths = function(items, config)
+        return { max_filename = 10, max_branch = 5, max_cwd = 15 }
+      end,
+      calculate_ideal_widths = function(analysis, config)
+        return {
+          ideal_width = 80,
+          padding = 4,
+          column_widths = {
+            selector_width = 2,
+            icon_width = 3,
+            filename_width = analysis.max_filename,
+            branch_width = analysis.max_branch,
+            cwd_width = analysis.max_cwd,
+          }
+        }
+      end,
+      apply_layout_constraints = function(width_calc, config)
+        return {
+          window_width = math.max(60, width_calc.ideal_width),
+          column_widths = width_calc.column_widths,
+        }
       end
     }
 
@@ -117,34 +157,8 @@ describe("scratch-manager.ui", function()
     end)
   end)
 
-  describe("path truncation logic", function()
-    it("should not truncate short paths", function()
-      local short_path = "~/project"
-      local result = ui.smart_truncate_path(short_path, 20)
-
-      assert.equals(short_path, result)
-    end)
-
-    it("should truncate long paths intelligently", function()
-      local long_path = "/very/long/path/to/some/deep/project/directory"
-      local result = ui.smart_truncate_path(long_path, 20)
-
-      assert.is_string(result)
-      assert.is_true(#result <= 20)
-      -- Test that truncation happened (result should be different from input)
-      assert.is_true(result ~= long_path)
-    end)
-
-    it("should handle edge cases", function()
-      local empty_path = ""
-      local result = ui.smart_truncate_path(empty_path, 10)
-      assert.equals("", result)
-
-      local single_part = "filename"
-      result = ui.smart_truncate_path(single_part, 5)
-      assert.is_true(#result <= 5)
-    end)
-  end)
+  -- Note: Path truncation logic moved to utils.lua during refactoring
+  -- These tests are now covered in utils_spec.lua
 
   describe("item line formatting", function()
     it("should format item lines correctly", function()
@@ -247,16 +261,7 @@ describe("scratch-manager.ui", function()
       assert.equals("", result)
     end)
 
-    it("should handle git branch extraction", function()
-      assert.is_function(ui._get_git_branch)
-
-      -- Should not error with nil input
-      local result = ui._get_git_branch(nil)
-      assert.equals("", result)
-
-      -- Should handle valid directory (mocked to return "main")
-      result = ui._get_git_branch("/some/path")
-      assert.is_string(result)
-    end)
+    -- Note: Git branch extraction moved to utils.lua during refactoring
+    -- This functionality is now tested in utils_spec.lua
   end)
 end)

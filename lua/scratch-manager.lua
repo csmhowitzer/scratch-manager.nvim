@@ -16,6 +16,14 @@ local selection = require("scratch-manager.selection")
 ---@field border table|nil Select list floating window border highlight
 ---@field separator table|nil Header separator line highlight (defaults to border if not set)
 ---@field header table|nil Header text color highlight
+---@field file_counter table|nil File counter text highlight (default: gray, italic)
+---@field window_title table|nil Window title highlight (default: no italic, uses default color)
+---@field footer table|nil Select list footer highlight (default: blue, bold, italic)
+---@field scratch_border table|nil Scratch buffer border highlight (default: gold)
+---@field scratch_title table|nil Scratch buffer title highlight (default: blue, bold, italic)
+
+---@class ScratchManagerSelectionConfig
+---@field max_items number Maximum items to show in selection UI (default: 20)
 
 ---@class ScratchManagerUIConfig
 ---@field show_git_branch boolean Whether to show git branch column (default: true)
@@ -24,6 +32,7 @@ local selection = require("scratch-manager.selection")
 ---@field filename_width number Fixed width for filename column (default: 25)
 ---@field branch_width number Fixed width for branch column (default: 15)
 ---@field icon_width number Fixed width for icon column (default: 3)
+---@field file_counter boolean Whether to show file counter in header (default: true)
 
 ---@class ScratchManagerConfig
 ---@field width number|nil Window width (defaults to 1/3 of screen, max 100)
@@ -35,6 +44,7 @@ local selection = require("scratch-manager.selection")
 ---@field highlights ScratchManagerHighlights|nil Highlight group overrides
 ---@field keymaps ScratchManagerKeymaps Keymap configuration
 ---@field ui ScratchManagerUIConfig UI configuration options
+---@field selection ScratchManagerSelectionConfig Selection UI configuration options
 ---@field enable_keymaps boolean Whether to set up default keymaps
 
 ---@class ScratchManagerKeymaps
@@ -60,38 +70,47 @@ local M = {}
 -- Default configuration
 ---@type ScratchManagerConfig
 local default_config = {
-  width = nil, -- Auto-calculated: 1/3 screen width, max 100
-  height = nil, -- Auto-calculated: screen height - 3
-  border_color = "#F7DC6F",
-  dashboard_color = "#a6d189",
-  default_filetype = "markdown",
-  border_highlight = "SnacksInputBorder",
-  highlights = {
-    border = { fg = "#89b4fa", bold = true },     -- Blue for selection list border
-    separator = { fg = "#89b4fa", bold = true },  -- Blue for separator line (matches border by default)
-    header = { fg = "#a6d189", bold = true },     -- Green for selection list header
-  },
-  keymaps = {
-    toggle = "==",        -- Markdown scratch buffer toggle
-    toggle_lang = "=c",   -- Language-aware scratch buffer toggle
-    select = "=s",        -- Select from existing scratch buffers
-    delete = "=d",        -- Delete current scratch buffer
-  },
-  ui = {
-    show_git_branch = true,
-    show_path = true,
-    show_icon = true,
-    filename_width = 25,
-    branch_width = 15,
-    icon_width = 3,
-  },
-  enable_keymaps = true,
+	width = nil, -- Auto-calculated: 1/3 screen width, max 100
+	height = nil, -- Auto-calculated: screen height - 3
+	border_color = "#F7DC6F",
+	dashboard_color = "#a6d189",
+	default_filetype = "markdown",
+	border_highlight = "SnacksInputBorder",
+	highlights = {
+		border = { fg = "#89b4fa", bold = true }, -- Blue for selection list border
+		separator = { fg = "#89b4fa", bold = true }, -- Blue for separator line (matches border by default)
+		header = { fg = "#a6d189", bold = true }, -- Green for selection list header
+		file_counter = { fg = "#313244", italic = true, bold = false }, -- Gray italic file counter
+		window_title = { fg = "#74c7ec", italic = false, bold = false }, -- Window title (uses default color, no italic)
+		footer = { fg = "#74c7ec", bold = true, italic = true }, -- Blue selection list footer
+		scratch_border = { fg = "#F7DC6F", bold = true }, -- Gold scratch buffer border
+		scratch_title = { fg = "#74c7ec", bold = true, italic = true }, -- Blue scratch buffer title
+	},
+	keymaps = {
+		toggle = "==", -- Markdown scratch buffer toggle
+		toggle_lang = "=c", -- Language-aware scratch buffer toggle
+		select = "=s", -- Select from existing scratch buffers
+		delete = "=d", -- Delete current scratch buffer
+	},
+	ui = {
+		show_git_branch = true,
+		show_path = true,
+		show_icon = true,
+		filename_width = 25,
+		branch_width = 15,
+		icon_width = 3,
+		file_counter = true,
+	},
+	selection = {
+		max_items = 20,
+	},
+	enable_keymaps = true,
 }
 
 ---Get current config with fallback to defaults
 ---@return ScratchManagerConfig
 local function get_config()
-  return M.config or default_config
+	return M.config or default_config
 end
 
 -- Private helper functions
@@ -111,7 +130,9 @@ end
 ---@return string filename Formatted filename
 ---@private
 local function get_scratch_filename(name)
-	if not name then return "" end
+	if not name then
+		return ""
+	end
 	local match = name:match("Scratch Pad %((.+)%)")
 	return match or name
 end
@@ -122,19 +143,21 @@ end
 ---@return table Window configuration for snacks.nvim
 ---@private
 local function get_window_options(width, height)
+	local constants = utils.get_layout_constants()
+
 	-- Calculate defaults if width/height are nil
 	if not width then
 		width = M.config.width or math.min(math.floor(vim.o.columns / 3), 100)
 	end
 	if not height then
-		height = M.config.height or (vim.o.lines - 3)
+		height = M.config.height or (vim.o.lines - constants.WINDOW_VERTICAL_OFFSET)
 	end
 
 	return {
 		row = 1,
 		col = vim.o.columns - width,
 		width = width,
-		height = height - 3, -- Additional -3 for window chrome
+		height = height - constants.WINDOW_VERTICAL_OFFSET, -- Additional offset for window chrome
 		wo = { winhighlight = "FloatBorder:ScratchManagerBorder,FloatTitle:ScratchManagerTitle," },
 	}
 end
@@ -152,6 +175,7 @@ end
 ---@return ScratchPadConfig Configuration for scratch buffer
 ---@private
 local function get_buffer_config(bufnr)
+	local constants = utils.get_layout_constants()
 	local slice_width = math.floor(vim.o.columns / 3)
 	local max_width = M.config.width or 100
 	local calculated_width = slice_width < max_width and slice_width or max_width
@@ -165,7 +189,7 @@ local function get_buffer_config(bufnr)
 
 	return {
 		width = M.config.width or calculated_width,
-		height = M.config.height or (vim.api.nvim_win_get_height(0) - 3),
+		height = M.config.height or (vim.api.nvim_win_get_height(0) - constants.WINDOW_VERTICAL_OFFSET),
 		path = path,
 		name = name,
 		fmtName = format_buffer_name(name),
@@ -196,39 +220,32 @@ end
 ---Define highlight groups for scratch manager UI
 ---@private
 local function define_highlights()
-  local config = get_config()
-  local hl = config.highlights or {}
+	local config = get_config()
+	local hl = config.highlights or {}
 
-  -- Window titles - matches m_augment footer color (not configurable)
-  vim.api.nvim_set_hl(0, "ScratchManagerTitle", {
-    fg = "#74c7ec", -- Same as m_augment AugmentChatFooter
-    bold = true,
-    italic = true -- Match m_augment footer style
-  })
+	-- Scratch buffer title - configurable
+	vim.api.nvim_set_hl(0, "ScratchManagerTitle", hl.scratch_title or { fg = "#74c7ec", bold = true, italic = false })
 
-  -- Scratch Buffer Border - preserve existing default (not configurable)
-  vim.api.nvim_set_hl(0, "ScratchManagerBorder", {
-    fg = "#F7DC6F", -- Current scratch buffer border color
-    bold = true
-  })
+	-- Scratch Buffer Border - configurable
+	vim.api.nvim_set_hl(0, "ScratchManagerBorder", hl.scratch_border or { fg = "#F7DC6F", bold = true })
 
-  -- Select list Border - configurable
-  vim.api.nvim_set_hl(0, "ScratchManagerSelectBorder",
-    hl.border or { fg = "#89b4fa", bold = true })
+	-- Select list Border - configurable
+	vim.api.nvim_set_hl(0, "ScratchManagerSelectBorder", hl.border or { fg = "#89b4fa", bold = true })
 
-  -- Select list Separator - configurable (defaults to border if not set)
-  vim.api.nvim_set_hl(0, "ScratchManagerSeparator",
-    hl.separator or hl.border or { fg = "#89b4fa", bold = true })
+	-- Select list Separator - configurable (defaults to border if not set)
+	vim.api.nvim_set_hl(0, "ScratchManagerSeparator", hl.separator or hl.border or { fg = "#89b4fa", bold = true })
 
-  -- Select list Header - configurable
-  vim.api.nvim_set_hl(0, "ScratchManagerSelectHeader",
-    hl.header or { fg = "#a6d189", bold = true })
+	-- Select list Header - configurable
+	vim.api.nvim_set_hl(0, "ScratchManagerSelectHeader", hl.header or { fg = "#a6d189", bold = true })
 
-  -- Selection highlight for active item (not configurable)
-  vim.api.nvim_set_hl(0, "ScratchManagerSelected", {
-    bg = "#45475a", -- Subtle background highlight
-    bold = true
-  })
+	-- Select list Footer - configurable
+	vim.api.nvim_set_hl(0, "ScratchManagerSelectFooter", hl.footer or { fg = "#74c7ec", bold = true, italic = true })
+
+	-- Selection highlight for active item (not configurable)
+	vim.api.nvim_set_hl(0, "ScratchManagerSelected", {
+		bg = "#45475a", -- Subtle background highlight
+		bold = true,
+	})
 end
 
 -- Public API functions
