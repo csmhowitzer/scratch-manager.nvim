@@ -8,20 +8,20 @@
 
 A powerful scratch buffer management plugin that enhances [folke/snacks.nvim](https://github.com/folke/snacks.nvim) with intelligent buffer persistence, customizable styling, and seamless workflow integration.
 
-> **Status**: ✅ **Production Ready** - Extracted from mature, battle-tested implementation
+> **Status**:  **Production Ready** - Extracted from mature, battle-tested implementation
 
 ## ✨ Features
 
-- 🎯 **Smart Buffer Management**: Automatic persistence and reload of scratch buffers based on current context
-- 🎨 **Customizable Styling**: Configurable borders, colors, positioning, and window dimensions
-- ⚡ **Multiple File Types**: Support for markdown, code, and any filetype with language-aware detection
-- 🔄 **Session Persistence**: Scratch buffers survive across Neovim sessions and reload intelligently
-- ⌨️ **Intuitive Keymaps**: Quick access with customizable key bindings that fit your workflow
-- 🏥 **Health Check Integration**: Comprehensive diagnostics and validation system
-- 🧪 **Professional Test Suite**: 92 comprehensive test cases ensuring reliability
-- 📚 **Complete Documentation**: Professional help docs with 40+ searchable tags
+- **Smart Buffer Management**: Automatic persistence and reload of scratch buffers based on current context
+- **Customizable Styling**: Configurable borders, colors, positioning, and window dimensions
+- **Multiple File Types**: Support for markdown, code, and any filetype with language-aware detection
+- **Session Persistence**: Scratch buffers survive across Neovim sessions and reload intelligently
+- **Intuitive Keymaps**: Quick access with customizable key bindings that fit your workflow
+- **Health Check Integration**: Comprehensive diagnostics and validation system
+- **Professional Test Suite**: 92 comprehensive test cases ensuring reliability
+- **Complete Documentation**: Professional help docs with 40+ searchable tags
 
-## 📋 Requirements
+## Requirements
 
 - **Neovim 0.9.0+** (for modern health check API)
 - **[folke/snacks.nvim](https://github.com/folke/snacks.nvim)** (required dependency)
@@ -54,7 +54,7 @@ Ensure `folke/snacks.nvim` is installed and loaded before `scratch-manager.nvim`
 3. Call `require("scratch-manager").setup()` in your configuration
 4. Run `:helptags doc/` to generate help tags
 
-## ⚙️ Configuration
+## Configuration
 
 scratch-manager.nvim works out of the box with sensible defaults, but can be fully customized:
 
@@ -109,7 +109,7 @@ vim.keymap.set("n", "<leader>st", sm.toggle_scratch_pad, { desc = "Toggle Scratc
 vim.keymap.set("n", "<leader>sl", function() sm.toggle_scratch_pad("lua") end, { desc = "Lua Scratch" })
 ```
 
-## 🚀 Usage
+## Usage
 
 ### Default Keymaps
 
@@ -133,7 +133,7 @@ scratch-manager intelligently manages your scratch space:
 - **Language-aware**: Detects appropriate filetype based on current buffer
 - **Non-intrusive**: Opens on the right side without disrupting your workflow
 
-## 🏥 Health Check
+## Health Check
 
 scratch-manager includes a comprehensive health check system:
 
@@ -150,7 +150,7 @@ The health check validates:
 - Test suite availability
 - Documentation completeness
 
-## 🧪 Testing
+## Testing
 
 Run the comprehensive test suite:
 
@@ -165,7 +165,7 @@ Run the comprehensive test suite:
 - ✅ Error handling and edge cases
 - ✅ Integration with snacks.nvim
 
-## 📚 Documentation
+## Documentation
 
 Complete documentation is available:
 
@@ -180,7 +180,7 @@ Complete documentation is available:
 - Troubleshooting guide
 - 40+ searchable help tags
 
-## 🔧 API Reference
+## API Reference
 
 ### Core Functions
 
@@ -200,7 +200,7 @@ require("scratch-manager").delete_current_scratch_pad()
 
 See `:help scratch-manager-functions` for complete API documentation.
 
-## 🎯 Examples
+## Examples
 
 ### Integration with which-key.nvim
 
@@ -229,7 +229,7 @@ vim.keymap.set("n", "<leader>ts", function()
 end, { desc = "Language Scratch" })
 ```
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -244,7 +244,7 @@ A: Install `folke/snacks.nvim` as a dependency.
 
 See `:help scratch-manager-troubleshooting` for complete troubleshooting guide.
 
-## 🏗️ Architecture
+## Architecture
 
 This plugin enhances `folke/snacks.nvim` with:
 - **Intelligent context detection** based on current buffer/directory
@@ -253,11 +253,11 @@ This plugin enhances `folke/snacks.nvim` with:
 - **Robust error handling** and user feedback
 - **Comprehensive testing** ensuring reliability
 
-## 📄 License
+## License
 
 MIT License - see the LICENSE file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **[folke/snacks.nvim](https://github.com/folke/snacks.nvim)** - Excellent foundation for scratch buffer functionality
 - **6-AC Quality Standards** - Professional plugin development methodology
