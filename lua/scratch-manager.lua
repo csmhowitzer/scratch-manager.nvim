@@ -14,6 +14,7 @@ local selection = require("scratch-manager.selection")
 local badge = require("scratch-manager.badge")
 local runner = require("scratch-manager.runner")
 local sql = require("scratch-manager.sql")
+local store = require("scratch-manager.store")
 
 ---@class ScratchManagerHighlights
 ---@field border table|nil Select list floating window border highlight
@@ -141,6 +142,8 @@ local default_config = {
 			-- default to AOT, which disables reflection (e.g. JsonSerializer.Serialize throws)
 			cmd = { "dotnet", "run", "-p:PublishAot=false" },
 			max_height = 15,
+			show_warnings = false, -- hide compiler/NuGet build warnings from the output
+			project = true, -- reference the source file's nearest .csproj (#:project)
 		},
 		sql = {
 			enabled = true,
@@ -330,6 +333,26 @@ local function scratch_root()
 	end)
 	local root = ok and type(scratch_config) == "table" and scratch_config.root or default_root
 	return vim.fs.normalize(root)
+end
+
+---Remember which file the (now current) pad was opened from, e.g. so C# pads can reference its
+---project. Kept in `b:scratch_manager_source` and persisted per pad file.
+---@param source_bufnr number Buffer the pad was opened from
+---@private
+local function remember_source(source_bufnr)
+	local pad = vim.api.nvim_get_current_buf()
+	if pad == source_bufnr or not vim.api.nvim_buf_is_valid(source_bufnr) then
+		return
+	end
+	local source = vim.api.nvim_buf_get_name(source_bufnr)
+	local pad_file = vim.fs.normalize(vim.api.nvim_buf_get_name(pad))
+	if source == "" or not vim.startswith(pad_file, scratch_root() .. "/") then
+		return
+	end
+	vim.b[pad].scratch_manager_source = source
+	if store.get("pad_sources", pad_file) ~= source then
+		store.set("pad_sources", pad_file, source)
+	end
 end
 
 ---Find the scratch item whose file is shown in the given buffer
@@ -559,6 +582,7 @@ function M.toggle_scratch_pad(file_type)
 	else
 		M.open_new_scratch_pad(config)
 	end
+	remember_source(bufnr)
 end
 
 ---Badge/statusline text for one pad kind: its icon, plus the count when there are several
@@ -665,11 +689,13 @@ end
 ---Open the existing scratch pad for the current buffer, asking which one if there are several
 ---@param kind "notes"|"code"|"db"|nil Only consider one kind of pad
 function M.open_pad(kind)
+	local source = vim.api.nvim_get_current_buf()
 	local pads = current_pads(kind)
 	if #pads == 0 then
 		vim.notify("No scratch pad found for this buffer", vim.log.levels.INFO)
 	elseif #pads == 1 then
 		M.open_scratch(pads[1])
+		remember_source(source)
 	else
 		vim.ui.select(pads, {
 			prompt = "Open which scratch pad?",
@@ -679,6 +705,7 @@ function M.open_pad(kind)
 		}, function(item)
 			if item then
 				M.open_scratch(item)
+				remember_source(source)
 			end
 		end)
 	end
@@ -705,8 +732,10 @@ function M.open_pad_from_badge(kind)
 		local pads = current_pads(kind)
 		if #pads == 1 then
 			local grow_kind = kind or pad_kind(pads[1].ft)
+			local source = vim.api.nvim_get_current_buf()
 			badge.grow(grow_kind, get_window_options(), border_hl(pad_kind(pads[1].ft)), function()
 				M.open_scratch(pads[1])
+				remember_source(source)
 			end)
 			return
 		end

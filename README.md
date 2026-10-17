@@ -107,6 +107,8 @@ require("scratch-manager").setup({
       enabled = true,             -- <CR> in a C# pad runs it with `dotnet run`
       cmd = { "dotnet", "run", "-p:PublishAot=false" }, -- .NET 10+ file-based apps
       max_height = 15,            -- Max height of the output window
+      project = true,             -- reference the source file's nearest .csproj
+      show_warnings = false,      -- show compiler/NuGet build warnings in the output
     },
     sql = {
       enabled = true,             -- <CR> in a DB pad runs it through the provider
@@ -200,6 +202,26 @@ an empty box grows from the badge to the pad's size (~150ms) before the pad open
   Requires the .NET 10+ SDK on your `PATH`. Disable with `run = { cs = { enabled = false } }`.
   The default command passes `-p:PublishAot=false`: file-based apps otherwise default to
   native AOT, which disables reflection (e.g. `JsonSerializer.Serialize` throws).
+- **Running a selection** (visual mode + `<CR>`) runs only the selected lines. For C#, the
+  `using` lines at the top of the pad and any `#:` lines are included automatically, so a
+  selected block still compiles; the output title says what ran (`lines 6–7 + 1 using line`).
+- **C# with your project**: a C# pad remembers the file it was opened from, and runs with a
+  reference to the nearest `.csproj` above that file, so the pad can use the project's own
+  types. The reference is added only to the compiled copy (your pad stays clean), line
+  numbers in errors still match the pad (`pad(3,9): error ...`), and the output title
+  shows the project. Build warnings (often from the project itself) are hidden and counted
+  in the title (`· 9 warnings hidden`); errors always show. `show_warnings = true` keeps them.
+  A pad with its own `#:project` line is left alone; turn it off with
+  `run = { cs = { project = false } }`. The first run builds the project, so large projects
+  take a while; later runs are incremental.
+
+  ```csharp
+  // pad opened with =c from src/Billing/InvoiceCalculator.cs
+  using Billing;
+
+  var items = new[] { new LineItem("SHINGLE", 30, 42.10m), new LineItem("NAILS", 4, 9.99m) };
+  Console.WriteLine(InvoiceCalculator.Total(items, 0.055m));   // 1374.62
+  ```
 
 ### DB pads (SQL)
 

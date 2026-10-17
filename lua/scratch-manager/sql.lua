@@ -55,42 +55,21 @@ function M.get_provider(config)
 end
 
 -- Remembered connection per pad: pad file -> connection name
-
----@return string
-local function store_path()
-	return vim.fn.stdpath("data") .. "/scratch-manager/sql_connections.json"
-end
-
----@return table<string, string>
-local function read_store()
-	local ok, lines = pcall(vim.fn.readfile, store_path())
-	if not ok or #lines == 0 then
-		return {}
-	end
-	local decoded_ok, data = pcall(vim.json.decode, table.concat(lines, "\n"))
-	return decoded_ok and type(data) == "table" and data or {}
-end
-
----@param data table<string, string>
-local function write_store(data)
-	vim.fn.mkdir(vim.fn.fnamemodify(store_path(), ":h"), "p")
-	vim.fn.writefile({ vim.json.encode(data) }, store_path())
-end
+local store = require("scratch-manager.store")
+local STORE = "sql_connections"
 
 ---Connection name remembered for a pad file
 ---@param pad_file string
 ---@return string|nil
 function M.get_connection_name(pad_file)
-	return read_store()[pad_file]
+	return store.get(STORE, pad_file)
 end
 
 ---Remember the connection for a pad file
 ---@param pad_file string
 ---@param name string|nil nil forgets it
 function M.set_connection_name(pad_file, name)
-	local data = read_store()
-	data[pad_file] = name
-	write_store(data)
+	store.set(STORE, pad_file, name)
 end
 
 ---Let the provider make the pad connection-aware (completion), if it supports that

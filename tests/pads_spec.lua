@@ -185,6 +185,27 @@ describe("scratch-manager pads", function()
       assert.is_false(calls[2].opts.win.wo.wrap)
     end)
 
+    it("remembers which file a pad was opened from (for C# project references)", function()
+      local original_open = mock_scratch.open
+      local root = vim.fn.stdpath("data") .. "/scratch"
+      vim.fn.mkdir(root, "p")
+      local pad_file = root .. "/pad_source_test.cs"
+      mock_scratch.open = function(opts)
+        table.insert(calls, { kind = "open", opts = opts })
+        vim.cmd.edit(vim.fn.fnameescape(pad_file)) -- like snacks: the pad becomes current
+      end
+      local cs_pad = pad("Invoice.cs", "cs")
+      cs_pad.file = pad_file
+      list_items = { cs_pad }
+      local src = edit_source("src/Billing/Invoice.cs")
+      local src_name = vim.api.nvim_buf_get_name(src)
+
+      sm.toggle_scratch_pad()
+      mock_scratch.open = original_open
+      assert.equals(src_name, vim.b.scratch_manager_source)
+      assert.equals(src_name, require("scratch-manager.store").get("pad_sources", vim.fs.normalize(pad_file)))
+    end)
+
     it("closes the pad when toggled from inside it", function()
       local lua_pad = pad("bar.lua", "lua")
       list_items = { lua_pad }

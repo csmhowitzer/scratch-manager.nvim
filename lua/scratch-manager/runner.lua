@@ -8,6 +8,8 @@ local M = {}
 ---@field cmd string[] Command to run; the source file path is appended
 ---                    (default: { "dotnet", "run", "-p:PublishAot=false" })
 ---@field max_height number Maximum height of the output window (default: 15)
+---@field project boolean Reference the source file's nearest .csproj via #:project (default: true)
+---@field show_warnings boolean Show compiler/NuGet build warnings in the output (default: false)
 
 local output = {
 	buf = nil,
@@ -22,10 +24,36 @@ function M.work_dir(pad_file)
 	return vim.fn.stdpath("cache") .. "/scratch-manager/cs/" .. key
 end
 
----Lines to run: the visual selection when called from visual mode, otherwise the whole buffer
----@param bufnr number
----@return string[]
-local function source_lines(bufnr)
+---Nearest .csproj at or above the pad's source file (the file the pad was opened from)
+---@param pad_bufnr number
+---@return string|nil csproj Absolute path
+function M.find_project(pad_bufnr)
+	local source = vim.b[pad_bufnr].scratch_manager_source
+		or require("scratch-manager.store").get("pad_sources", vim.api.nvim_buf_get_name(pad_bufnr))
+	if type(source) ~= "string" or source == "" then
+		return nil
+	end
+	local found = vim.fs.find(function(name)
+		return name:match("%.csproj$") ~= nil
+	end, { upward = true, path = vim.fs.dirname(source), type = "file", limit = 1 })
+	return found[1]
+end
+
+---Does the pad already reference a project with its own #: directive?
+---@param lines string[]
+---@return boolean
+local function has_project_directive(lines)
+	for _, line in ipairs(lines) do
+		if line:match("^%s*#:project%s") then
+			return true
+		end
+	end
+	return false
+end
+
+---Selected line range when called from visual mode (and leave visual mode), otherwise nil
+---@return { first: number, last: number }|nil
+local function selection_range()
 	local mode = vim.fn.mode()
 	if mode == "v" or mode == "V" or mode == "\22" then
 		local first, last = vim.fn.line("v"), vim.fn.line(".")
@@ -33,9 +61,75 @@ local function source_lines(bufnr)
 			first, last = last, first
 		end
 		vim.api.nvim_feedkeys(vim.keycode("<Esc>"), "n", false)
-		return vim.api.nvim_buf_get_lines(bufnr, first - 1, last, false)
+		return { first = first, last = last }
 	end
-	return vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+	return nil
+end
+
+---Is this line a using directive (not a `using var x = ...;` / `using (...)` statement)?
+---@param line string
+---@return boolean
+local function is_using_directive(line)
+	return line:match("^%s*global%s+using%s") ~= nil
+		or line:match("^%s*using%s+static%s+[%w_.<>,%s]+;%s*$") ~= nil
+		or line:match("^%s*using%s+[%w_.]+%s*;%s*$") ~= nil
+		or line:match("^%s*using%s+[%w_]+%s*=%s*[%w_.<>,%s]+;%s*$") ~= nil
+end
+
+---Build the file that gets compiled from the pad lines.
+---
+---- `#:` directives (the pad's own, plus the project reference) are hoisted to the very top, as
+---  dotnet requires; in the body they become blank lines so line numbers don't move.
+---- For a selection, the using directives at the top of the pad are included too (each tagged
+---  with its pad line number), so a selected block that relies on them still compiles.
+---- `#line` keeps compiler line numbers matching the pad.
+---@param pad_lines string[] All lines of the pad
+---@param range { first: number, last: number }|nil Selected lines, nil for the whole pad
+---@param project string|nil .csproj to reference
+---@return string[] compiled
+---@return number usings Number of using lines added for a selection
+function M.compose(pad_lines, range, project)
+	local directives, body_start = {}, 1
+	if project then
+		table.insert(directives, "#:project " .. project)
+	end
+	for _, line in ipairs(pad_lines) do
+		if line:match("^%s*#:") then
+			table.insert(directives, vim.trim(line))
+		end
+	end
+
+	local first, last = 1, #pad_lines
+	if range then
+		first, last = range.first, range.last
+	end
+
+	local compiled = vim.list_extend({}, directives)
+	local usings = 0
+	if range then
+		-- Using directives in the pad's header (before its first line of code), outside the selection
+		for lnum, line in ipairs(pad_lines) do
+			local blank = line:match("^%s*$") or line:match("^%s*//") or line:match("^%s*#[:!]")
+			if not blank and not is_using_directive(line) then
+				break
+			end
+			if lnum >= first then
+				break
+			end
+			if is_using_directive(line) then
+				vim.list_extend(compiled, { "#line " .. lnum, line })
+				usings = usings + 1
+			end
+		end
+	end
+	body_start = first
+
+	table.insert(compiled, "#line " .. body_start)
+	for lnum = first, last do
+		local line = pad_lines[lnum]
+		table.insert(compiled, line:match("^%s*#:") and "" or line)
+	end
+	return compiled, usings
 end
 
 ---Close the output window if it is open
@@ -153,21 +247,51 @@ function M.run_csharp(bufnr, config)
 	local dir = M.work_dir(vim.api.nvim_buf_get_name(bufnr))
 	vim.fn.mkdir(dir, "p")
 	local file = dir .. "/scratch.cs"
-	vim.fn.writefile(source_lines(bufnr), file)
+	local range = selection_range()
+	local pad_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+	-- Reference the source file's project so the pad can use its types
+	local project = config.project ~= false and not has_project_directive(pad_lines) and M.find_project(bufnr) or nil
+	local compiled, usings = M.compose(pad_lines, range, project)
+	vim.fn.writefile(compiled, file)
 	table.insert(cmd, file)
 
-	M.show_output({ "Running…" }, table.concat(cmd, " "):gsub(vim.pesc(file), "scratch.cs"), pad_win, max_height)
+	-- Say exactly what ran, so a selection that also pulled in using lines isn't a mystery
+	local label = project and vim.fn.fnamemodify(project, ":t") or nil
+	local scope = ""
+	if range then
+		scope = (" · lines %d–%d"):format(range.first, range.last)
+		if usings > 0 then
+			scope = scope .. (" + %d using line%s"):format(usings, usings == 1 and "" or "s")
+		end
+	end
+	local prefix = "dotnet run" .. (label and (" · " .. label) or "") .. scope
+	M.show_output({ project and ("Building with " .. label .. "…") or "Running…" }, prefix, pad_win, max_height)
 	local started = vim.uv.hrtime()
 	vim.system(cmd, { cwd = dir, text = true }, function(result)
 		vim.schedule(function()
 			local text = (result.stdout or "") .. (result.stderr or "")
+			-- Point compiler messages at the pad instead of the hidden work file
+			text = text:gsub(vim.pesc(file) .. "%(", "pad(")
 			local lines = vim.split(vim.trim(text), "\n", { plain = true })
 			if #lines == 1 and lines[1] == "" then
 				lines = {}
 			end
+			-- Build warnings (CS/NU/IL codes, often from the referenced project) are noise in a pad
+			local hidden = 0
+			if not config.show_warnings then
+				lines = vim.tbl_filter(function(line)
+					if line:match(": warning %u+%d+:") then
+						hidden = hidden + 1
+						return false
+					end
+					return true
+				end, lines)
+			end
 			local ms = math.floor((vim.uv.hrtime() - started) / 1e6)
 			local status = result.code == 0 and "ok" or ("exit " .. result.code)
-			M.show_output(lines, ("dotnet run · %s · %dms"):format(status, ms), pad_win, max_height)
+			local note = hidden > 0 and (" · %d warning%s hidden"):format(hidden, hidden == 1 and "" or "s") or ""
+			M.show_output(lines, ("%s · %s · %dms%s"):format(prefix, status, ms, note), pad_win, max_height)
 		end)
 	end)
 end
