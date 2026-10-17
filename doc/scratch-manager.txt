@@ -98,6 +98,7 @@ Default configuration:~
     enable_keymaps = true,          -- Whether to set up default keymaps
     wrap = { notes = true, code = false, db = false }, -- <M-z> toggles
     autosave = true,                -- Save pads after every change
+    lsp = { detach = true, allow = { "lua_ls" } }, -- servers on pads
     keymaps = {
       toggle = "==",                -- Toggle scratch buffer (markdown)
       toggle_lang = "=c",           -- Toggle scratch buffer (language-aware)
@@ -179,9 +180,19 @@ wrap                    (boolean|table)
 *scratch-manager-config-autosave*
 autosave                (boolean)
     Save pads after every change (leaving insert mode, normal-mode edits,
-    leaving the buffer), so closing, switching or quitting never asks to
+    leaving the buffer, and shortly after typing pauses in insert mode),
+    so closing, switching, quitting or an external reload never asks to
     save a pad. Writes skip autocommands, so format-on-save does not run
     on scratch content. Default: true
+
+*scratch-manager-config-lsp*
+lsp                     (table)
+    Language servers on pads. Pads are files outside any project with
+    encoded names; servers can't resolve them and some crash (Roslyn).
+    • detach (boolean)  Detach servers from pad buffers. Default: true
+    • allow  (string[]) Servers to keep. Default: { "lua_ls" }
+    Pad buffers have `b:scratch_manager_pad` set, so other config (format on
+    save, LSP crash handlers) can skip them.
 
 *scratch-manager-config-enable-keymaps*
 enable_keymaps          (boolean)

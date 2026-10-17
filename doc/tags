@@ -9,6 +9,7 @@ scratch-manager-config-enable-keymaps	scratch-manager.txt	/*scratch-manager-conf
 scratch-manager-config-height	scratch-manager.txt	/*scratch-manager-config-height*
 scratch-manager-config-indicator	scratch-manager.txt	/*scratch-manager-config-indicator*
 scratch-manager-config-keymaps	scratch-manager.txt	/*scratch-manager-config-keymaps*
+scratch-manager-config-lsp	scratch-manager.txt	/*scratch-manager-config-lsp*
 scratch-manager-config-run	scratch-manager.txt	/*scratch-manager-config-run*
 scratch-manager-config-width	scratch-manager.txt	/*scratch-manager-config-width*
 scratch-manager-config-wrap	scratch-manager.txt	/*scratch-manager-config-wrap*

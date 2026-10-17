@@ -326,6 +326,92 @@ describe("scratch-manager pads", function()
     end)
   end)
 
+  describe("language servers on pads", function()
+    -- A minimal in-process language server
+    local function fake_server(name, bufnr)
+      local id = vim.lsp.start({
+        name = name,
+        cmd = function()
+          return {
+            request = function(method, _, callback)
+              if method == "initialize" then
+                callback(nil, { capabilities = {} })
+              else
+                callback(nil, nil)
+              end
+              return true, 1
+            end,
+            notify = function() return true end,
+            is_closing = function() return false end,
+            terminate = function() end,
+          }
+        end,
+        root_dir = tmp,
+      }, { bufnr = bufnr })
+      vim.wait(1000, function()
+        local c = vim.lsp.get_client_by_id(id)
+        return c ~= nil and c.initialized
+      end)
+      vim.wait(200) -- let the scheduled detach run
+      return id
+    end
+
+    local function pad_buf(name)
+      local root = vim.fn.stdpath("data") .. "/scratch"
+      vim.fn.mkdir(root, "p")
+      vim.cmd.edit(vim.fn.fnameescape(root .. "/" .. name))
+      return vim.api.nvim_get_current_buf()
+    end
+
+    it("detaches servers from pads but keeps allowed ones and normal files", function()
+      sm.setup({ enable_keymaps = false })
+      local pad = pad_buf("lsp_test.cs")
+      assert.is_true(vim.b[pad].scratch_manager_pad)
+      -- the server must never be sent the pad: record what it receives
+      local received = {}
+      local roslyn = vim.lsp.start({
+        name = "fake_roslyn",
+        cmd = function()
+          return {
+            request = function(method, _, callback)
+              callback(nil, method == "initialize" and { capabilities = { textDocumentSync = 1 } } or nil)
+              return true, 1
+            end,
+            notify = function(method)
+              table.insert(received, method)
+              return true
+            end,
+            is_closing = function() return false end,
+            terminate = function() end,
+          }
+        end,
+        root_dir = tmp,
+      }, { bufnr = pad })
+      vim.wait(500)
+      vim.api.nvim_buf_set_lines(pad, 0, -1, false, { "changed" })
+      vim.wait(200)
+      assert.is_false(vim.lsp.buf_is_attached(pad, roslyn))
+      assert.is_nil(vim.tbl_contains(received, "textDocument/didOpen") or nil)
+      assert.is_nil(vim.tbl_contains(received, "textDocument/didChange") or nil)
+
+      local lua_pad = pad_buf("lsp_test.lua")
+      local lua_ls = fake_server("lua_ls", lua_pad)
+      assert.is_true(vim.lsp.buf_is_attached(lua_pad, lua_ls))
+
+      local src = edit_source("Real.cs")
+      local real = fake_server("fake_roslyn_2", src)
+      assert.is_true(vim.lsp.buf_is_attached(src, real))
+      assert.is_nil(vim.b[src].scratch_manager_pad)
+    end)
+
+    it("leaves servers alone with lsp.detach = false", function()
+      sm.setup({ enable_keymaps = false, lsp = { detach = false } })
+      local pad = pad_buf("lsp_keep.cs")
+      local id = fake_server("fake_roslyn_3", pad)
+      assert.is_true(vim.lsp.buf_is_attached(pad, id))
+    end)
+  end)
+
   describe("pad help (=h)", function()
     local help = require("scratch-manager.help")
 
@@ -450,6 +536,18 @@ describe("scratch-manager pads", function()
       vim.api.nvim_buf_set_lines(0, 0, -1, false, { "changed" })
       vim.cmd("doautocmd BufLeave")
       assert.same({ "changed" }, vim.fn.readfile(file))
+    end)
+
+    it("also saves shortly after typing pauses in insert mode", function()
+      sm.setup({ enable_keymaps = false })
+      local file = edit_unsaved_pad()
+      vim.cmd("doautocmd TextChangedI")
+      assert.is_true(vim.bo.modified) -- not immediately
+      vim.wait(1000, function()
+        return not vim.bo.modified
+      end)
+      assert.is_false(vim.bo.modified)
+      assert.same({ "Console.WriteLine(1);" }, vim.fn.readfile(file))
     end)
 
     it("leaves normal files alone", function()

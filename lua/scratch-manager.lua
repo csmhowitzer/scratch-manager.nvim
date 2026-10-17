@@ -68,6 +68,7 @@ local store = require("scratch-manager.store")
 ---@field enable_keymaps boolean Whether to set up default keymaps
 ---@field wrap boolean|{ notes: boolean, code: boolean, db: boolean } Soft-wrap long lines per pad kind, or for all (default: notes only)
 ---@field autosave boolean Save pads after every change so they never prompt to save (default: true)
+---@field lsp { detach: boolean, allow: string[] } Language servers on pads: detach all but `allow` (default: detach, allow lua_ls)
 ---@field run { cs: ScratchManagerRunConfig, sql: ScratchManagerSqlConfig } Runners for pads by filetype (Lua pads use snacks' own <CR>)
 ---@field indicator ScratchManagerIndicatorConfig Scratch pad indicator options
 
@@ -145,6 +146,12 @@ local default_config = {
 	enable_keymaps = true,
 	wrap = { notes = true, code = false, db = false }, -- or true/false for every kind; <M-z> toggles
 	autosave = true,
+	-- Pads are throwaway files outside any project, with encoded file names servers can't handle
+	-- (Roslyn crashes on them). Detach language servers from pads, except the ones listed in allow.
+	lsp = {
+		detach = true,
+		allow = { "lua_ls" },
+	},
 	run = {
 		cs = {
 			enabled = true,
@@ -875,11 +882,102 @@ local function on_pad_open(bufnr)
 	pcall(lang.on_open, bufnr, (get_config().run or {})[ft] or {})
 end
 
+---Is this buffer a scratch pad (its file lives under the snacks scratch root)?
+---@param bufnr number
+---@return boolean
+local function is_pad_buffer(bufnr)
+	return vim.api.nvim_buf_is_valid(bufnr)
+		and vim.startswith(vim.fs.normalize(vim.api.nvim_buf_get_name(bufnr)), scratch_root() .. "/")
+end
+
+-- Language servers on pads (see the `lsp` option). Detaching after attach is too late: the server
+-- has already been sent the pad (and Roslyn crashes on the next change to it), so attaching is
+-- declined up front. vim.lsp.start attaches every buffer through vim.lsp.buf_attach_client, for
+-- new and reused clients, so that's where pads are turned away.
+local lsp_block, lsp_allow = false, {}
+
+---Should this server be kept off this buffer?
+---@param bufnr number
+---@param client_id number
+---@return boolean
+local function block_lsp(bufnr, client_id)
+	if not lsp_block then
+		return false
+	end
+	bufnr = (bufnr == nil or bufnr == 0) and vim.api.nvim_get_current_buf() or bufnr
+	if not is_pad_buffer(bufnr) then
+		return false
+	end
+	local client = vim.lsp.get_client_by_id(client_id)
+	if client and lsp_allow[client.name] then
+		return false
+	end
+	vim.b[bufnr].scratch_manager_pad = true
+	return true
+end
+
+---Wrap vim.lsp.buf_attach_client once per Neovim session so pads can decline servers before
+---they're sent anything. The wrapper asks the current `block` function, so reloading the plugin
+---or turning the option off takes effect without stacking wrappers.
+---@param enabled boolean
+---@private
+local function install_lsp_guard(enabled)
+	local guard = rawget(_G, "__scratch_manager_lsp_guard")
+	if not guard then
+		if not enabled then
+			return
+		end
+		guard = { original = vim.lsp.buf_attach_client }
+		rawset(_G, "__scratch_manager_lsp_guard", guard)
+		vim.lsp.buf_attach_client = function(bufnr, client_id)
+			if guard.block and guard.block(bufnr, client_id) then
+				return false
+			end
+			return guard.original(bufnr, client_id)
+		end
+	end
+	guard.block = enabled and block_lsp or nil
+end
+
 ---Set up pad buffer hooks: autosave (write after every change, so leaving, closing or quitting
----never asks to save a pad) and DB pad attach (completion)
+---never asks to save a pad), language on_open hooks, keeping language servers off pads, and the
+---`b:scratch_manager_pad` marker other configs can use to recognize pads
 ---@private
 local function setup_autosave()
 	local group = vim.api.nvim_create_augroup("ScratchManagerAutosave", { clear = true })
+
+	vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter" }, {
+		group = group,
+		pattern = scratch_root() .. "/*",
+		callback = function(args)
+			vim.b[args.buf].scratch_manager_pad = true
+		end,
+	})
+
+	local lsp = get_config().lsp or {}
+	lsp_allow = {}
+	for _, name in ipairs(lsp.allow or {}) do
+		lsp_allow[name] = true
+	end
+	lsp_block = lsp.detach ~= false
+	install_lsp_guard(lsp_block)
+	if lsp_block then
+		-- Fallback for servers attached some other way: detach as soon as they attach
+		vim.api.nvim_create_autocmd("LspAttach", {
+			group = group,
+			callback = function(args)
+				local client = vim.lsp.get_client_by_id(args.data.client_id)
+				if client and not lsp_allow[client.name] and is_pad_buffer(args.buf) then
+					vim.schedule(function()
+						if vim.api.nvim_buf_is_valid(args.buf) and vim.lsp.buf_is_attached(args.buf, client.id) then
+							vim.lsp.buf_detach_client(args.buf, client.id)
+						end
+					end)
+				end
+			end,
+		})
+	end
+
 	-- Language on_open hooks (DB pads: attach the connection). snacks sets the pad's filetype
 	-- after BufEnter, so also catch pads on FileType
 	vim.api.nvim_create_autocmd("FileType", {
@@ -907,6 +1005,23 @@ local function setup_autosave()
 				buffer = args.buf,
 				callback = function()
 					autosave_pad(args.buf)
+				end,
+			})
+			-- Also save shortly after typing pauses in insert mode, so a pad is almost never
+			-- unsaved when something else reloads it (e.g. an LSP crash handler running :edit)
+			local timer
+			vim.api.nvim_create_autocmd("TextChangedI", {
+				group = group,
+				buffer = args.buf,
+				callback = function()
+					if timer then
+						timer:stop()
+					else
+						timer = (vim.uv or vim.loop).new_timer()
+					end
+					timer:start(400, 0, vim.schedule_wrap(function()
+						autosave_pad(args.buf)
+					end))
 				end,
 			})
 		end,

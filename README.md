@@ -85,6 +85,10 @@ require("scratch-manager").setup({
   enable_keymaps = true,          -- Whether to set up default keymaps
   wrap = { notes = true, code = false, db = false }, -- Soft-wrap per pad kind (or true/false); <M-z> toggles
   autosave = true,                -- Save pads after every change (never prompts to save)
+  lsp = {
+    detach = true,                -- Keep language servers off pads (they can't resolve pad files)
+    allow = { "lua_ls" },         -- ...except these
+  },
   keymaps = {
     toggle = "==",                -- Toggle scratch buffer (markdown)
     toggle_lang = "=c",           -- Toggle scratch buffer (language-aware)
@@ -169,6 +173,14 @@ vim.keymap.set("n", "<leader>sl", function() sm.toggle_scratch_pad("lua") end, {
 Pads open on the right third of the screen. `=w` inside a pad cycles it to two thirds (still on
 the right) and to nearly the full width (centered, with margins), then back. The size stays for
 the rest of the session, and the output window follows it. Handy for long `.Dump()` values.
+
+### Language servers in pads
+
+Pads are throwaway files outside any project, stored under encoded file names. Language
+servers can't make sense of them, and some crash (Roslyn does), so they're detached from
+pad buffers by default; `lsp.allow` lists servers to keep (`lua_ls` by default, for Lua pads).
+Set `lsp.detach = false` to leave all servers attached. Pad buffers carry `b:scratch_manager_pad`,
+so your own config (format-on-save, crash handlers, …) can skip them.
 
 ### Wrapping
 
