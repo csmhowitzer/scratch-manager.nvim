@@ -297,6 +297,100 @@ describe("scratch-manager pads", function()
     end)
   end)
 
+  describe("pad help (=h)", function()
+    local help = require("scratch-manager.help")
+
+    after_each(function()
+      help.close()
+    end)
+
+    -- A buffer standing in for a pad of the given filetype, opened from `source`
+    local function pad_buf(ft, source)
+      local buf = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_name(buf, tmp .. "/scratch/pad." .. ft)
+      vim.bo[buf].filetype = ft
+      vim.b[buf].scratch_manager_source = source
+      vim.api.nvim_set_current_buf(buf)
+      return buf
+    end
+
+    local function help_text()
+      return table.concat(vim.api.nvim_buf_get_lines(help._state.buf, 0, -1, false), "\n")
+    end
+
+    it("adds =h to every pad, configurable or off", function()
+      sm.setup({ enable_keymaps = false })
+      edit_source("bar.lua")
+      sm.toggle_scratch_pad("markdown")
+      assert.equals("=h", calls[1].opts.win.keys.help[1])
+
+      sm.setup({ enable_keymaps = false, keymaps = { pad_help = "g?" } })
+      sm.toggle_scratch_pad("markdown")
+      assert.equals("g?", calls[2].opts.win.keys.help[1])
+
+      sm.setup({ enable_keymaps = false, keymaps = { pad_help = false } })
+      sm.toggle_scratch_pad("markdown")
+      assert.is_nil(calls[3].opts.win.keys.help)
+    end)
+
+    it("explains C# pads with this pad's project, selections and #: directives", function()
+      sm.setup({ enable_keymaps = false })
+      vim.fn.mkdir(tmp .. "/src/Billing", "p")
+      vim.fn.writefile({ "<Project />" }, tmp .. "/src/Billing/Billing.csproj")
+      local buf = pad_buf("cs", tmp .. "/src/Billing/Invoice.cs")
+      sm.show_help(buf)
+
+      local text = help_text()
+      assert.truthy(text:find("C# scratch pad · Invoice.cs", 1, true))
+      assert.truthy(text:find("Throwaway C# for Invoice.cs.", 1, true)) -- markers removed
+      assert.truthy(text:find("reference to Billing.csproj", 1, true))
+      assert.truthy(text:find("plus the using lines", 1, true))
+      assert.truthy(text:find("│ #:package  │ <PackageReference>", 1, true)) -- aligned table
+      assert.truthy(text:find("│ =q    │ DB pad (SQL)", 1, true))
+      assert.is_nil(text:find("`", 1, true))
+      assert.is_nil(text:find("**", 1, true))
+      assert.equals(help._state.win, vim.api.nvim_get_current_win())
+    end)
+
+    it("shows a DB pad's remembered connection, or that the first run will ask", function()
+      sm.setup({ enable_keymaps = false, run = { sql = { provider = false } } })
+      local buf = pad_buf("sql", tmp .. "/Jobs.cs")
+      sm.show_help(buf)
+      assert.truthy(help_text():find("first run asks", 1, true))
+      assert.truthy(help_text():find("No provider\n───────────", 1, true))
+
+      require("scratch-manager.sql").set_connection_name(vim.api.nvim_buf_get_name(buf), "Dev SQL")
+      sm.show_help(buf)
+      assert.truthy(help_text():find("runs on Dev SQL", 1, true))
+    end)
+
+    it("renders inline code, bold, headings and tables with highlights", function()
+      local text, ranges = help.inline("Run `dotnet run` for **Foo.cs** now")
+      assert.equals("Run dotnet run for Foo.cs now", text)
+      assert.same({ { 4, 14, "ScratchManagerHelpCode" }, { 19, 25, "ScratchManagerHelpBold" } }, ranges)
+
+      local lines, hls = help.render({
+        { title = "T" },
+        { h = "Head" },
+        { t = { { "Key", "Action" }, { "`<CR>`", "Run" } } },
+      })
+      assert.same({ "T", "━", "", "Head", "────", "╭──────┬────────╮", "│ Key  │ Action │", "├──────┼────────┤", "│ <CR> │ Run    │", "╰──────┴────────╯" }, lines)
+      local groups = {}
+      for _, h in ipairs(hls) do
+        groups[h[4]] = true
+      end
+      assert.is_true(groups.ScratchManagerHelpTitle and groups.ScratchManagerHelpHeading and groups.ScratchManagerHelpCode)
+    end)
+
+    it("closes with q", function()
+      sm.setup({ enable_keymaps = false })
+      sm.show_help(pad_buf("markdown", tmp .. "/notes.cs"))
+      assert.truthy(help_text():find("Notes scratch pad", 1, true))
+      vim.api.nvim_feedkeys("q", "x", false)
+      assert.is_nil(help._state.win)
+    end)
+  end)
+
   describe("autosave", function()
     -- Open a pad file under the scratch root (where snacks keeps pads) and make it unsaved
     local function edit_unsaved_pad()

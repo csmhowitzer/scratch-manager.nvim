@@ -72,6 +72,7 @@ local store = require("scratch-manager.store")
 ---@field toggle string Toggle scratch buffer (markdown)
 ---@field toggle_lang string Toggle scratch buffer (language-aware)
 ---@field toggle_db string Toggle DB (SQL) scratch buffer
+---@field pad_help string|false Help for the current pad (inside pads only)
 ---@field select string Select from existing scratch buffers
 ---@field delete string Delete current scratch buffer
 
@@ -117,6 +118,7 @@ local default_config = {
 		toggle = "==", -- Markdown scratch buffer toggle
 		toggle_lang = "=c", -- Language-aware scratch buffer toggle
 		toggle_db = "=q", -- DB (SQL) scratch buffer toggle
+		pad_help = "=h", -- Help inside a pad (language-specific)
 		select = "=s", -- Select from existing scratch buffers
 		delete = "=d", -- Delete current scratch buffer
 	},
@@ -249,6 +251,16 @@ local function pad_keys(ft)
 		keys.run = runner.csharp_key(run.cs)
 	elseif ft == "sql" and run.sql and run.sql.enabled ~= false and run.sql.provider ~= false then
 		keys = sql.keys(run.sql)
+	end
+	local help_key = (get_config().keymaps or {}).pad_help
+	if help_key then
+		keys.help = {
+			help_key,
+			function(self)
+				M.show_help(self.buf)
+			end,
+			desc = "Help",
+		}
 	end
 	keys.wrap = {
 		"<M-z>",
@@ -457,6 +469,13 @@ local function define_highlights()
 
 	-- Floating badge icon - configurable
 	vim.api.nvim_set_hl(0, "ScratchManagerBadge", hl.badge or { fg = "#74c7ec", bold = true })
+
+	-- Pad help (=h): `default` links, so colorschemes or users can override them
+	vim.api.nvim_set_hl(0, "ScratchManagerHelpTitle", { link = "ScratchManagerTitle", default = true })
+	vim.api.nvim_set_hl(0, "ScratchManagerHelpHeading", { link = "Title", default = true })
+	vim.api.nvim_set_hl(0, "ScratchManagerHelpRule", { link = "FloatBorder", default = true })
+	vim.api.nvim_set_hl(0, "ScratchManagerHelpCode", { link = "String", default = true })
+	vim.api.nvim_set_hl(0, "ScratchManagerHelpBold", { bold = true, default = true })
 
 	-- Selection highlight for active item (not configurable)
 	vim.api.nvim_set_hl(0, "ScratchManagerSelected", {
@@ -832,6 +851,35 @@ local function setup_autosave()
 			})
 		end,
 	})
+end
+
+---Show language-specific help for a pad (what <CR> does here, keys, tips)
+---@param bufnr number|nil Pad buffer (defaults to the current buffer)
+function M.show_help(bufnr)
+	bufnr = bufnr or vim.api.nvim_get_current_buf()
+	local ft = vim.bo[bufnr].filetype
+	local pad_file = vim.fs.normalize(vim.api.nvim_buf_get_name(bufnr))
+	local config = get_config()
+	local run = config.run or {}
+	local item = pad_for_buffer(get_snacks().scratch.list(), bufnr)
+	local name = item and item.name and get_scratch_filename(item.name)
+	local info = {
+		ft = ft,
+		kind = pad_kind(ft),
+		name = (name and name ~= "unsaved") and name or nil,
+		source = vim.b[bufnr].scratch_manager_source or store.get("pad_sources", pad_file),
+		keymaps = config.keymaps or {},
+		help_key = (config.keymaps or {}).pad_help or "=h",
+		border_hl = border_hl(pad_kind(ft)),
+	}
+	if ft == "cs" and (run.cs or {}).project ~= false then
+		info.project = runner.find_project(bufnr)
+	elseif ft == "sql" then
+		info.connection = sql.get_connection_name(vim.api.nvim_buf_get_name(bufnr))
+		local provider = sql.get_provider(run.sql)
+		info.provider = provider and provider.name or nil
+	end
+	require("scratch-manager.help").open(info)
 end
 
 ---Statusline component: the notes, code and/or db icon when the current buffer has those pads,

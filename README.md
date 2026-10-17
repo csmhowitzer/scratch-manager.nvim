@@ -89,6 +89,7 @@ require("scratch-manager").setup({
     toggle = "==",                -- Toggle scratch buffer (markdown)
     toggle_lang = "=c",           -- Toggle scratch buffer (language-aware)
     toggle_db = "=q",             -- Toggle DB (SQL) scratch buffer
+    pad_help = "=h",              -- Inside a pad: language-specific help (false to disable)
     select = "=s",                -- Select from existing scratch buffers
     delete = "=d",                -- Delete current scratch buffer
   },
@@ -153,6 +154,7 @@ vim.keymap.set("n", "<leader>sl", function() sm.toggle_scratch_pad("lua") end, {
 | `==` | Toggle Scratch (Markdown) | Opens/focuses markdown scratch buffer |
 | `=c` | Toggle Scratch (Language-aware) | Opens scratch buffer with detected filetype |
 | `=q` | Toggle Scratch (DB) | Opens a SQL scratch buffer for this file |
+| `=h` | Pad help | Inside a pad: what `<CR>` does there, keys, tips (C#, SQL, Lua, notes) |
 | `=s` | Select Scratch | Choose from existing scratch buffers |
 | `=d` | Delete Scratch | Delete the scratch pad (asks for confirmation; works from the pad or its source buffer) |
 
@@ -210,6 +212,7 @@ an empty box grows from the badge to the pad's size (~150ms) before the pad open
 - **Running a selection** (visual mode + `<CR>`) runs only the selected lines. For C#, the
   `using` lines at the top of the pad and any `#:` lines are included automatically, so a
   selected block still compiles; the output title says what ran (`lines 6–7 + 1 using line`).
+  `=h` in any pad explains this and the rest of that language's features.
 - **C# with your project**: a C# pad remembers the file it was opened from, and runs with a
   reference to the nearest `.csproj` above that file, so the pad can use the project's own
   types. The reference is added only to the compiled copy (your pad stays clean), line
