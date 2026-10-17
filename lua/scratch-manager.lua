@@ -75,6 +75,7 @@ local store = require("scratch-manager.store")
 ---@field toggle string Toggle scratch buffer (markdown)
 ---@field toggle_lang string Toggle scratch buffer (language-aware)
 ---@field toggle_db string Toggle DB (SQL) scratch buffer
+---@field send string|false Send the selection / function under the cursor to the file's code pad
 ---@field pad_help string|false Help for the current pad (inside pads only)
 ---@field pad_size string|false Cycle the pad size: ⅓ → ⅔ → nearly full (inside pads only)
 ---@field select string Select from existing scratch buffers
@@ -123,6 +124,7 @@ local default_config = {
 		toggle = "==", -- Markdown scratch buffer toggle
 		toggle_lang = "=c", -- Language-aware scratch buffer toggle
 		toggle_db = "=q", -- DB (SQL) scratch buffer toggle
+		send = "=p", -- Send the selection (or the function under the cursor) to the code pad
 		pad_help = "=h", -- Help inside a pad (language-specific)
 		pad_size = "=w", -- Inside a pad: cycle its size (⅓ → ⅔ → nearly full)
 		select = "=s", -- Select from existing scratch buffers
@@ -943,6 +945,48 @@ function M._pad_size()
 	return pad_size
 end
 
+---Send code to the current file's code pad: the given lines, else the function/method under the
+---cursor, else the current line. Opens (or focuses) the code pad and puts the cursor on the code.
+---@param range { first: number, last: number }|nil Lines to send (1-based, inclusive)
+function M.send_to_pad(range)
+	local send = require("scratch-manager.send")
+	local src = vim.api.nvim_get_current_buf()
+	if pad_for_buffer(get_snacks().scratch.list(), src) then
+		vim.notify("Already in a scratch pad", vim.log.levels.INFO)
+		return
+	end
+	if vim.api.nvim_buf_get_name(src) == "" then
+		vim.notify("Save the file first: pads belong to a file", vim.log.levels.INFO)
+		return
+	end
+	local target = send.target_range(src, range)
+	local config = get_buffer_config(src)
+	config.match_ft = true
+	local block, imports = send.build(src, target, config.ft)
+
+	-- Focus the code pad if it's already on screen, otherwise open it
+	local existing = M.find_existing_scratch_pad(get_snacks().scratch.list(), config)
+	local pad_win = existing and vim.fn.bufwinid(vim.fn.bufnr(existing.file)) or -1
+	if pad_win ~= -1 then
+		vim.api.nvim_set_current_win(pad_win)
+		remember_source(src)
+	else
+		M.toggle_scratch_pad()
+	end
+	local pad = vim.api.nvim_get_current_buf()
+	if pad == src then
+		return
+	end
+
+	local lnum, added = send.insert(pad, block, imports, config.ft)
+	pcall(vim.api.nvim_win_set_cursor, 0, { lnum, 0 })
+	autosave_pad(pad)
+
+	local count = target.last - target.first + 1
+	local extra = added > 0 and (" (+%d import line%s)"):format(added, added == 1 and "" or "s") or ""
+	vim.notify(("Sent %d line%s to the code pad%s"):format(count, count == 1 and "" or "s", extra), vim.log.levels.INFO)
+end
+
 ---Statusline component: the notes, code and/or db icon when the current buffer has those pads,
 ---otherwise ""
 ---
@@ -1024,6 +1068,20 @@ local function setup_keymaps()
 		vim.keymap.set("n", keymaps.toggle_db, function()
 			M.toggle_scratch_pad("sql")
 		end, { desc = "Toggle Scratch Buffer (DB / SQL)" })
+	end
+
+	-- Send code to the file's code pad
+	if keymaps.send then
+		vim.keymap.set({ "n", "x" }, keymaps.send, function()
+			local range
+			local mode = vim.fn.mode()
+			if mode == "v" or mode == "V" or mode == "\22" then
+				local first, last = vim.fn.line("v"), vim.fn.line(".")
+				range = { first = math.min(first, last), last = math.max(first, last) }
+				vim.api.nvim_feedkeys(vim.keycode("<Esc>"), "n", false)
+			end
+			M.send_to_pad(range)
+		end, { desc = "Send to Code Pad" })
 	end
 
 	-- Select from existing scratch buffers

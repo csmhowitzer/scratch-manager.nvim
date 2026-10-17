@@ -49,6 +49,7 @@ local function common(info)
 				{ k(km.toggle_db), "DB pad (SQL)" },
 				{ k(km.select), "Browse every pad" },
 				{ k(km.delete), "Delete a pad (asks first)" },
+				{ k(km.send), "In a source file: send the selection or function to its code pad" },
 				{ "`<M-z>`", "Toggle word wrap in this pad" },
 				{ k(km.pad_size), "Pad size: ⅓ → ⅔ → nearly full screen" },
 				{ k(info.help_key), "This help (`q` closes)" },

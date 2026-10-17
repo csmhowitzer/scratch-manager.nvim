@@ -89,6 +89,7 @@ require("scratch-manager").setup({
     toggle = "==",                -- Toggle scratch buffer (markdown)
     toggle_lang = "=c",           -- Toggle scratch buffer (language-aware)
     toggle_db = "=q",             -- Toggle DB (SQL) scratch buffer
+    send = "=p",                  -- Send the selection / function under the cursor to the code pad
     pad_help = "=h",              -- Inside a pad: language-specific help (false to disable)
     pad_size = "=w",              -- Inside a pad: cycle its size, ⅓ → ⅔ → nearly full (false to disable)
     select = "=s",                -- Select from existing scratch buffers
@@ -157,6 +158,7 @@ vim.keymap.set("n", "<leader>sl", function() sm.toggle_scratch_pad("lua") end, {
 | `==` | Toggle Scratch (Markdown) | Opens/focuses markdown scratch buffer |
 | `=c` | Toggle Scratch (Language-aware) | Opens scratch buffer with detected filetype |
 | `=q` | Toggle Scratch (DB) | Opens a SQL scratch buffer for this file |
+| `=p` | Send to Code Pad | Sends the selection (visual) or the function under the cursor to this file's code pad |
 | `=h` | Pad help | Inside a pad: what `<CR>` does there, keys, tips (C#, SQL, Lua, notes) |
 | `=w` | Pad size | Inside a pad: ⅓ of the screen → ⅔ → nearly full (centered); stays for the session |
 | `=s` | Select Scratch | Choose from existing scratch buffers |
@@ -287,6 +289,20 @@ run = {
   },
 },
 ```
+
+### Sending code to a pad
+
+`=p` in a source file sends code to that file's code pad (the `=c` pad), opening it with the
+cursor on the new code: in visual mode the selected lines, in normal mode the function or method
+under the cursor (Treesitter), or the current line. The code goes in under a
+`// from File.cs:12–18` comment with its indentation cleaned up, so you can try variations
+without touching the real file.
+
+For C#, the file's `using` lines and its namespace are added to the top of the pad if they're
+missing (never twice; the pad's usings are then sorted the .NET way: `System` first, then the rest,
+then `using static` and aliases), and a method becomes a local function (access modifiers dropped; an extension method's
+`this` parameter becomes a plain one, with a note on how to call it). It goes above any
+`record`/`class` declarations in the pad, since C# needs statements first.
 
 ### Commands
 

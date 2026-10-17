@@ -41,4 +41,9 @@ for _, dep in ipairs({ "plenary.nvim", "snacks.nvim" }) do
 end
 vim.cmd("runtime plugin/plenary.vim")
 
+-- Treesitter parsers installed by nvim-treesitter (e.g. c_sharp), when available
+if vim.fn.isdirectory(lazy_dir .. "/nvim-treesitter/parser") == 1 then
+  vim.opt.rtp:append(lazy_dir .. "/nvim-treesitter")
+end
+
 vim.opt.swapfile = false

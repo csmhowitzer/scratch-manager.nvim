@@ -7,6 +7,7 @@
 ---Code pads
 ---  imports(source_lines) -> string[]   lines a snippet from this file needs (C#: using + namespace)
 ---  is_import(line) -> boolean          is this a header/import line (also directives such as #:)
+---  sort_imports(lines) -> lines        order import lines after `=p` adds some (C#: System first)
 ---  adapt(lines, node_type) -> lines, note|nil
 ---                                      make sent code work on its own (C#: method -> local function)
 ---  insert_at(pad_lines) -> index       0-based line to insert new code at (C#: before type declarations)
@@ -41,6 +42,7 @@ local M = {}
 ---@class ScratchManagerLanguage
 ---@field imports? fun(source_lines: string[]): string[]
 ---@field is_import? fun(line: string): boolean
+---@field sort_imports? fun(lines: string[]): string[]
 ---@field adapt? fun(lines: string[], node_type: string|nil): string[], string|nil
 ---@field insert_at? fun(pad_lines: string[]): number
 ---@field treesitter? string

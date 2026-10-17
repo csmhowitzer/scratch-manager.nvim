@@ -24,6 +24,7 @@ scratch-manager-keymaps	scratch-manager.txt	/*scratch-manager-keymaps*
 scratch-manager-languages	scratch-manager.txt	/*scratch-manager-languages*
 scratch-manager-matching	scratch-manager.txt	/*scratch-manager-matching*
 scratch-manager-requirements	scratch-manager.txt	/*scratch-manager-requirements*
+scratch-manager-send	scratch-manager.txt	/*scratch-manager-send*
 scratch-manager-troubleshooting	scratch-manager.txt	/*scratch-manager-troubleshooting*
 scratch-manager-usage	scratch-manager.txt	/*scratch-manager-usage*
 scratch-manager.delete_current_scratch_pad()	scratch-manager.txt	/*scratch-manager.delete_current_scratch_pad()*

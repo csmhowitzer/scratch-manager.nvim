@@ -102,6 +102,7 @@ Default configuration:~
       toggle = "==",                -- Toggle scratch buffer (markdown)
       toggle_lang = "=c",           -- Toggle scratch buffer (language-aware)
       toggle_db = "=q",             -- Toggle DB (SQL) scratch buffer
+      send = "=p",                  -- Send code to the file's code pad
       pad_help = "=h",              -- Inside a pad: language-specific help
       pad_size = "=w",              -- Inside a pad: cycle ⅓ → ⅔ → nearly full
       select = "=s",                -- Select from existing scratch buffers
@@ -293,6 +294,16 @@ interact with scratch buffers:
    • Press `=d` to delete the scratch pad (asks for confirmation; works
      from inside the pad or from its source buffer)
 
+                                                        *scratch-manager-send*
+Sending code to a pad:~
+`=p` in a source file sends the selected lines (visual mode), or the
+function/method under the cursor (Treesitter), or the current line, to the
+file's code pad under a "from File:lines" comment. For C#, the file's `using`
+lines and namespace are added to the pad if missing (then sorted: System
+first, the rest alphabetically, using static, aliases), and methods become local
+functions (access modifiers dropped; extension methods get a note on how to
+call them), placed above any type declarations.
+
                                                     *scratch-manager-languages*
 Adding a language:~
 Language-specific behavior lives in profiles
@@ -453,6 +464,9 @@ Command                 Default Key     Description~
 toggle                  ==              Toggle scratch buffer (markdown)
 toggle_lang             =c              Toggle scratch buffer (language-aware)
 toggle_db               =q              Toggle DB (SQL) scratch buffer
+send                    =p              Send the selection (visual) or the
+                                        function under the cursor to this
+                                        file's code pad
 pad_help                =h              Inside a pad: help for that pad's
                                         language (false to disable)
 pad_size                =w              Inside a pad: cycle its size, ⅓ of

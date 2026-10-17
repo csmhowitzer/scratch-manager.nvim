@@ -50,6 +50,38 @@ function M.imports(source_lines)
 	return out
 end
 
+---Order using directives the usual .NET way (as `dotnet format` does): global usings, System and
+---System.*, the rest alphabetically, then `using static`, then aliases
+---@param lines string[] Using directive lines
+---@return string[]
+function M.sort_imports(lines)
+	local function key(line)
+		local l = vim.trim(line)
+		local group, name
+		if l:match("^global%s") then
+			group, name = 0, l
+		elseif l:match("^using%s+static%s") then
+			group, name = 3, l:match("^using%s+static%s+(.-)%s*;")
+		elseif l:match("^using%s+[%w_]+%s*=") then
+			group, name = 4, l:match("^using%s+(.-)%s*;")
+		else
+			name = l:match("^using%s+(.-)%s*;") or l
+			group = (name == "System" or name:match("^System%.")) and 1 or 2
+		end
+		return group, (name or l):lower()
+	end
+	local sorted = vim.deepcopy(lines)
+	table.sort(sorted, function(a, b)
+		local ga, na = key(a)
+		local gb, nb = key(b)
+		if ga ~= gb then
+			return ga < gb
+		end
+		return na < nb
+	end)
+	return sorted
+end
+
 local MODIFIERS = {
 	public = true, private = true, protected = true, internal = true, static = true, override = true,
 	virtual = true, sealed = true, new = true, extern = true, abstract = true, partial = true, readonly = true,
@@ -317,6 +349,10 @@ function M.help(info, h)
 		},
 		{
 			p = "Build warnings are hidden and counted in the output. Errors always show, with pad line numbers, for example `pad(7,9): error CS0029`.",
+		},
+		{ h = "Sending code here" },
+		{
+			p = ("In a C# file, " .. h.key(km.send) .. " sends the selection, or the method under the cursor, to this pad. Methods become local functions (access modifiers dropped), and the file's `using` lines and namespace are added at the top if they're missing."),
 		},
 		{ h = "Running a selection" },
 		{
