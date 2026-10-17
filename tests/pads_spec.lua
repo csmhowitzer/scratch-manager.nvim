@@ -174,6 +174,31 @@ describe("scratch-manager pads", function()
       assert.equals("markdown", calls[1].opts.ft)
     end)
 
+    it("wraps notes pads but not code or DB pads by default, with <M-z> to toggle", function()
+      edit_source("bar.lua")
+      sm.toggle_scratch_pad("markdown")
+      sm.toggle_scratch_pad("lua")
+      sm.toggle_scratch_pad("sql")
+      assert.is_true(calls[1].opts.win.wo.wrap)
+      assert.is_false(calls[2].opts.win.wo.wrap)
+      assert.is_false(calls[3].opts.win.wo.wrap)
+      assert.is_false(calls[3].opts.win.wo.linebreak)
+
+      -- per-kind override, and the toggle key flips the window it runs in
+      sm.setup({ enable_keymaps = false, wrap = { code = true } })
+      sm.toggle_scratch_pad("lua")
+      assert.is_true(calls[4].opts.win.wo.wrap)
+      local key = calls[4].opts.win.keys.wrap
+      assert.equals("<M-z>", key[1])
+      local win = vim.api.nvim_get_current_win()
+      vim.wo[win].wrap = false
+      key[2]({ win = win })
+      assert.is_true(vim.wo[win].wrap)
+      assert.is_true(vim.wo[win].linebreak)
+      key[2]({ win = win })
+      assert.is_false(vim.wo[win].wrap)
+    end)
+
     it("soft-wraps the scratch window by default, and not when wrap = false", function()
       edit_source("bar.lua")
       sm.toggle_scratch_pad("markdown")
@@ -596,11 +621,11 @@ describe("scratch-manager pads", function()
         assert.equals("<cr>", calls[1].opts.win.keys.run[1])
 
         sm.toggle_scratch_pad("markdown")
-        assert.is_nil(calls[2].opts.win.keys)
+        assert.is_nil(calls[2].opts.win.keys.run)
 
         sm.setup({ enable_keymaps = false, run = { cs = { enabled = false } } })
         sm.toggle_scratch_pad()
-        assert.is_nil(calls[3].opts.win.keys)
+        assert.is_nil(calls[3].opts.win.keys.run)
       end)
     end)
 

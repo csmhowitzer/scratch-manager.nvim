@@ -83,7 +83,7 @@ require("scratch-manager").setup({
   dashboard_color = "#a6d189",    -- Dashboard highlight color
   default_filetype = "markdown",  -- Default filetype for new scratch buffers
   enable_keymaps = true,          -- Whether to set up default keymaps
-  wrap = true,                    -- Soft-wrap long lines in the scratch window
+  wrap = { notes = true, code = false, db = false }, -- Soft-wrap per pad kind (or true/false); <M-z> toggles
   autosave = true,                -- Save pads after every change (never prompts to save)
   keymaps = {
     toggle = "==",                -- Toggle scratch buffer (markdown)
@@ -155,6 +155,11 @@ vim.keymap.set("n", "<leader>sl", function() sm.toggle_scratch_pad("lua") end, {
 | `=q` | Toggle Scratch (DB) | Opens a SQL scratch buffer for this file |
 | `=s` | Select Scratch | Choose from existing scratch buffers |
 | `=d` | Delete Scratch | Delete the scratch pad (asks for confirmation; works from the pad or its source buffer) |
+
+### Wrapping
+
+Notes pads soft-wrap long lines; code and DB pads don't (`wrap` sets this per kind, or
+`true`/`false` for all). `<M-z>` (Alt+z) toggles wrapping in the current pad.
 
 ### How pads are matched
 

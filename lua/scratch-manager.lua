@@ -63,7 +63,7 @@ local store = require("scratch-manager.store")
 ---@field ui ScratchManagerUIConfig UI configuration options
 ---@field selection ScratchManagerSelectionConfig Selection UI configuration options
 ---@field enable_keymaps boolean Whether to set up default keymaps
----@field wrap boolean Soft-wrap long lines (at word boundaries) in the scratch window (default: true)
+---@field wrap boolean|{ notes: boolean, code: boolean, db: boolean } Soft-wrap long lines per pad kind, or for all (default: notes only)
 ---@field autosave boolean Save pads after every change so they never prompt to save (default: true)
 ---@field run { cs: ScratchManagerRunConfig, sql: ScratchManagerSqlConfig } Runners for pads by filetype (Lua pads use snacks' own <CR>)
 ---@field indicator ScratchManagerIndicatorConfig Scratch pad indicator options
@@ -133,7 +133,7 @@ local default_config = {
 		max_items = 20,
 	},
 	enable_keymaps = true,
-	wrap = true,
+	wrap = { notes = true, code = false, db = false }, -- or true/false for every kind; <M-z> toggles
 	autosave = true,
 	run = {
 		cs = {
@@ -224,17 +224,44 @@ local function border_hl(kind)
 	return ({ code = "ScratchManagerCodeBorder", db = "ScratchManagerDbBorder" })[kind] or "ScratchManagerBorder"
 end
 
----Snacks window keys for a pad filetype (run keys for runnable filetypes)
+---Should pads of this kind soft-wrap? (`wrap` is a boolean for all kinds or a per-kind table)
+---@param kind "notes"|"code"|"db"
+---@return boolean
+local function wraps(kind)
+	local wrap = get_config().wrap
+	if type(wrap) == "table" then
+		local value = wrap[kind]
+		if value == nil then
+			value = default_config.wrap[kind]
+		end
+		return value ~= false
+	end
+	return wrap ~= false
+end
+
+---Snacks window keys for a pad filetype: wrap toggle everywhere, run keys for runnable filetypes
 ---@param ft string|nil
----@return table|nil
+---@return table
 local function pad_keys(ft)
 	local run = get_config().run or {}
+	local keys = {}
 	if ft == "cs" and run.cs and run.cs.enabled ~= false then
-		return { run = runner.csharp_key(run.cs) }
+		keys.run = runner.csharp_key(run.cs)
 	elseif ft == "sql" and run.sql and run.sql.enabled ~= false and run.sql.provider ~= false then
-		return sql.keys(run.sql)
+		keys = sql.keys(run.sql)
 	end
-	return nil
+	keys.wrap = {
+		"<M-z>",
+		function(self)
+			local win = self.win
+			local on = not vim.wo[win].wrap
+			vim.wo[win].wrap = on
+			vim.wo[win].linebreak = on
+		end,
+		desc = "Wrap",
+		mode = { "n", "i" },
+	}
+	return keys
 end
 
 ---Get window options for scratch buffer positioning
@@ -255,9 +282,9 @@ local function get_window_options(width, height, ft)
 		height = height,
 		wo = {
 			winhighlight = "FloatBorder:" .. border_hl(pad_kind(ft)) .. ",FloatTitle:ScratchManagerTitle,",
-			-- Without this the window inherits the global 'wrap', and long lines scroll sideways
-			wrap = config.wrap ~= false,
-			linebreak = config.wrap ~= false,
+			-- Set explicitly: otherwise the window inherits the global 'wrap' (often off)
+			wrap = wraps(pad_kind(ft)),
+			linebreak = wraps(pad_kind(ft)),
 		},
 		keys = pad_keys(ft),
 	}

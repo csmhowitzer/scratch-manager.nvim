@@ -96,7 +96,7 @@ Default configuration:~
     dashboard_color = "#a6d189",    -- Dashboard highlight color
     default_filetype = "markdown",  -- Default filetype for new scratch buffers
     enable_keymaps = true,          -- Whether to set up default keymaps
-    wrap = true,                    -- Soft-wrap long lines in the scratch window
+    wrap = { notes = true, code = false, db = false }, -- <M-z> toggles
     autosave = true,                -- Save pads after every change
     keymaps = {
       toggle = "==",                -- Toggle scratch buffer (markdown)
@@ -164,10 +164,12 @@ border_highlight        (string)
     every time a pad opened; use |scratch-manager-config-border-color|.
 
 *scratch-manager-config-wrap*
-wrap                    (boolean)
-    Soft-wrap long lines in the scratch window at word boundaries
-    ('wrap' and 'linebreak'), regardless of your global 'wrap'. The file
-    itself is not changed. Default: true
+wrap                    (boolean|table)
+    Soft-wrap long lines at word boundaries ('wrap' and 'linebreak'),
+    regardless of your global 'wrap'. A table sets it per pad kind; a
+    boolean sets it for all. <M-z> (Alt+z) toggles it in the current pad.
+    The file itself is not changed.
+    Default: { notes = true, code = false, db = false }
 
 *scratch-manager-config-autosave*
 autosave                (boolean)
