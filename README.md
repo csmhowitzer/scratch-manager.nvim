@@ -102,6 +102,7 @@ require("scratch-manager").setup({
     notify = false,               -- Also notify once when entering a buffer with a pad
     float = false,                -- Clickable notes/code badges in the top-right corner
     animate = false,              -- Grow the pad out of the badge when clicked
+    transparent = true,           -- Badges use the editor background like the pads (false: float background)
   },
   run = {
     cs = {

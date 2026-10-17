@@ -115,6 +115,7 @@ Default configuration:~
       notify = false,               -- Notify once when entering such a buffer
       float = false,                -- Clickable notes/code badges, top-right
       animate = false,              -- Grow the pad out of the badge on click
+      transparent = true,           -- Badges blend in like the pads
     },
     run = {
       cs = {
@@ -206,6 +207,9 @@ indicator               (table)
     • animate    (boolean) Grow an empty box from the badge to the pad's
                            size (~150ms) before opening it. Only when the
                            buffer has exactly one pad. Default: false
+    • transparent (boolean) Badges use the editor background, like the
+                           pad windows. false: the regular floating-window
+                           background. Default: true
 
 *scratch-manager-config-run*
 run                     (table)

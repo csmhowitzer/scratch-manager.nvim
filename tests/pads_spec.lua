@@ -650,6 +650,22 @@ describe("scratch-manager pads", function()
         assert.equals(vim.o.columns - 1 - 5, vim.api.nvim_win_get_config(badge.get_win("code")).col)
       end)
 
+      it("uses the editor background like the pads, or the float background when not transparent", function()
+        sm.setup({ enable_keymaps = false, indicator = { float = true } })
+        list_items = { pad("bar.lua", "markdown") }
+        edit_source("bar.lua")
+        sm.refresh_indicator()
+        local win = badge.get_win("notes")
+        assert.truthy(vim.wo[win].winhighlight:find("NormalFloat:Normal,", 1, true))
+        -- the icon keeps its color through an extmark
+        local marks = vim.api.nvim_buf_get_extmarks(vim.api.nvim_win_get_buf(win), -1, 0, -1, { details = true })
+        assert.equals("ScratchManagerBadge", marks[1][4].hl_group)
+
+        sm.setup({ enable_keymaps = false, indicator = { float = true, transparent = false } })
+        sm.refresh_indicator()
+        assert.truthy(vim.wo[badge.get_win("notes")].winhighlight:find("NormalFloat:NormalFloat,", 1, true))
+      end)
+
       it("opens the pad of the clicked kind", function()
         sm.setup({ enable_keymaps = false, indicator = { float = true } })
         local md_pad, lua_pad = pad("bar.lua", "markdown"), pad("bar.lua", "lua")

@@ -13,6 +13,8 @@ local state = {
 	animating = false,
 }
 
+local ns = vim.api.nvim_create_namespace("scratch-manager-badge")
+
 local GROW_FRAMES = 10
 local GROW_INTERVAL_MS = 15
 
@@ -110,7 +112,10 @@ end
 ---@param col number Editor column of the badge's left border
 ---@param border_hl string Highlight group for the border
 ---@param on_click function Called when the badge is clicked
-function M.show(kind, text, col, border_hl, on_click)
+---@param opts? { transparent?: boolean } transparent (default): editor background like the pads;
+---  false: the regular floating-window background
+function M.show(kind, text, col, border_hl, on_click, opts)
+	opts = opts or {}
 	local buf = ensure_buf(kind, on_click)
 	local badge = badges[kind]
 	local line = " " .. text .. " " -- one cell of padding on each side
@@ -118,6 +123,9 @@ function M.show(kind, text, col, border_hl, on_click)
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { line })
 	vim.bo[buf].modifiable = false
+	-- The icon gets its color from an extmark, so the window background can follow the pads
+	vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+	vim.api.nvim_buf_set_extmark(buf, ns, 0, 0, { end_col = #line, hl_group = "ScratchManagerBadge" })
 
 	local win_config = {
 		relative = "editor",
@@ -148,7 +156,9 @@ function M.show(kind, text, col, border_hl, on_click)
 		vim.wo[badge.win].scrolloff = 0
 		vim.wo[badge.win].wrap = false
 	end
-	vim.wo[badge.win].winhighlight = "NormalFloat:ScratchManagerBadge,FloatBorder:" .. border_hl
+	-- Same as the pad windows (NormalFloat:Normal), or the regular float background
+	local background = opts.transparent == false and "NormalFloat:NormalFloat" or "NormalFloat:Normal"
+	vim.wo[badge.win].winhighlight = background .. ",FloatBorder:" .. border_hl
 	vim.api.nvim_win_call(badge.win, function()
 		vim.fn.winrestview({ lnum = 1, col = 0, topline = 1, leftcol = 0 })
 	end)

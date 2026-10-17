@@ -50,6 +50,7 @@ local store = require("scratch-manager.store")
 ---@field notify boolean Notify once per buffer when it has a scratch pad (default: false)
 ---@field float boolean Show clickable floating badges (notes, code, db) in the top-right corner (default: false)
 ---@field animate boolean Grow the pad out of the badge when it is clicked (default: false)
+---@field transparent boolean Badges use the editor background like the pads; false: float background (default: true)
 
 ---@class ScratchManagerConfig
 ---@field width number|nil Window width (defaults to 1/3 of screen, max 100)
@@ -162,6 +163,7 @@ local default_config = {
 		notify = false,
 		float = false,
 		animate = false,
+		transparent = true, -- badges blend in like the pads; false for the regular float background
 	},
 }
 
@@ -675,7 +677,7 @@ local function update_badge()
 			local col = right - (badge.width(text) + 2) -- + 2 border cells
 			badge.show(kind, text, col, border_hl(kind), function()
 				M.open_pad_from_badge(kind)
-			end)
+			end, { transparent = indicator.transparent })
 			right = col - 1 -- one cell gap between badges
 		else
 			badge.hide(kind)
