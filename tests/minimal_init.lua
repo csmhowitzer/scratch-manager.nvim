@@ -20,6 +20,11 @@ if not vim.env.SCRATCH_MANAGER_TEST_HOME then
   vim.env.XDG_STATE_HOME = vim.env.SCRATCH_MANAGER_TEST_HOME .. "/state"
 end
 
+-- Keep the user's own config (plugin/, after/plugin/) out of the test processes
+local config_dir = vim.fn.stdpath("config")
+vim.opt.rtp:remove(config_dir)
+vim.opt.rtp:remove(config_dir .. "/after")
+
 -- Add the plugin and its test dependencies (installed via lazy.nvim) to the runtimepath
 local lazy_dir = vim.env.LAZY_DIR
 vim.opt.rtp:prepend(plugin_dir)

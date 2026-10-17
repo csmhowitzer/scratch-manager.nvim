@@ -12,14 +12,15 @@ describe("scratch-manager.runner", function()
     return vim.api.nvim_get_current_buf()
   end
 
-  -- Wait for the finished run: only the final title carries the run time ("· 12ms")
+  -- Wait for the finished run: only the final title carries the status ("✓ ok" / "✗ exit N")
   local function wait_for_output()
     vim.wait(5000, function()
       local w = runner._output.win
       if not (w and vim.api.nvim_win_is_valid(w)) then
         return false
       end
-      return vim.inspect(vim.api.nvim_win_get_config(w).title):find("%d+ms") ~= nil
+      local title = vim.inspect(vim.api.nvim_win_get_config(w).title)
+      return title:find("✓ ok", 1, true) ~= nil or title:find("✗ exit", 1, true) ~= nil
     end)
     local w = runner._output.win
     return vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(w), 0, -1, false), vim.api.nvim_win_get_config(w)
@@ -112,9 +113,9 @@ describe("scratch-manager.runner", function()
     it("references it at run time without changing the pad, keeping line numbers", function()
       local buf = pad_from_project_file({ "using Billing;", "Console.WriteLine(1);" })
       runner.run_csharp(buf, { cmd = { "cat" } })
-      local lines, cfg = wait_for_output()
-      assert.same({ "#:project " .. root .. "/src/Billing/Billing.csproj", "#line 1", "using Billing;", "Console.WriteLine(1);" }, lines)
-      assert.truthy(vim.inspect(cfg.title):find("Billing.csproj"))
+      local lines = wait_for_output()
+      -- first line: dimmed details (the project); the title stays short
+      assert.same({ "Billing.csproj", "#:project " .. root .. "/src/Billing/Billing.csproj", "#line 1", "using Billing;", "Console.WriteLine(1);" }, lines)
       assert.same({ "using Billing;", "Console.WriteLine(1);" }, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
     end)
 
@@ -181,9 +182,8 @@ describe("scratch-manager.runner", function()
     local buf = pad_buffer({ "using System.Text;", "", "var a = 1;", "Console.WriteLine(a);" })
     vim.cmd("normal! 3GVj")
     runner.run_csharp(buf, { cmd = { "cat" } })
-    local lines, cfg = wait_for_output()
-    assert.same({ "#line 1", "using System.Text;", "#line 3", "var a = 1;", "Console.WriteLine(a);" }, lines)
-    assert.truthy(vim.inspect(cfg.title):find("lines 3–4 %+ 1 using line"))
+    local lines = wait_for_output()
+    assert.same({ "lines 3–4 + 1 using line", "#line 1", "using System.Text;", "#line 3", "var a = 1;", "Console.WriteLine(a);" }, lines)
   end)
 
   describe(".Dump() inline values", function()
@@ -271,13 +271,31 @@ describe("scratch-manager.runner", function()
       .. 'echo "Foo.cs(76,34): warning CS0618: obsolete"; echo "1374.62"'
     local buf = pad_buffer({ "x" })
     runner.run_csharp(buf, { cmd = { "sh", "-c", script } })
-    local lines, cfg = wait_for_output()
-    assert.same({ "1374.62" }, lines)
-    assert.truthy(vim.inspect(cfg.title):find("2 warnings hidden"))
+    local lines = wait_for_output()
+    assert.same({ "2 warnings hidden", "1374.62" }, lines)
     runner.close_output()
 
     runner.run_csharp(buf, { cmd = { "sh", "-c", script }, show_warnings = true })
     assert.equals(3, #(wait_for_output()))
+  end)
+
+  it("keeps the title short and readable", function()
+    local buf = pad_buffer({ "x" })
+    runner.run_csharp(buf, { cmd = { "cat" } })
+    local _, cfg = wait_for_output()
+    assert.truthy(vim.inspect(cfg.title):find(" dotnet run · ✓ ok · %d+ms "))
+  end)
+
+  it("redraws the output at the pad's new size", function()
+    local buf = pad_buffer({ "x" })
+    local pad_win = vim.api.nvim_get_current_win()
+    runner.run_csharp(buf, { cmd = { "cat" } })
+    wait_for_output()
+    vim.cmd("vsplit")
+    vim.api.nvim_set_current_win(pad_win)
+    local before = vim.api.nvim_win_get_width(runner._output.win)
+    runner.relayout(pad_win)
+    assert.is_true(vim.api.nvim_win_get_width(runner._output.win) < before)
   end)
 
   it("reports a missing command instead of running", function()

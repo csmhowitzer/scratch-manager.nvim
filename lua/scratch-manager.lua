@@ -75,6 +75,7 @@ local store = require("scratch-manager.store")
 ---@field toggle_lang string Toggle scratch buffer (language-aware)
 ---@field toggle_db string Toggle DB (SQL) scratch buffer
 ---@field pad_help string|false Help for the current pad (inside pads only)
+---@field pad_size string|false Cycle the pad size: ⅓ → ⅔ → nearly full (inside pads only)
 ---@field select string Select from existing scratch buffers
 ---@field delete string Delete current scratch buffer
 
@@ -122,6 +123,7 @@ local default_config = {
 		toggle_lang = "=c", -- Language-aware scratch buffer toggle
 		toggle_db = "=q", -- DB (SQL) scratch buffer toggle
 		pad_help = "=h", -- Help inside a pad (language-specific)
+		pad_size = "=w", -- Inside a pad: cycle its size (⅓ → ⅔ → nearly full)
 		select = "=s", -- Select from existing scratch buffers
 		delete = "=d", -- Delete current scratch buffer
 	},
@@ -246,6 +248,29 @@ local function wraps(kind)
 	return wrap ~= false
 end
 
+-- Pad size for this session, cycled with `=w`: 1 = default width on the right, 2 = two thirds of
+-- the screen on the right, 3 = nearly the full width (centered, with margins so it still reads as a popup)
+local pad_size = 1
+
+---Width and column for the current pad size
+---@param width number Default width
+---@return number width
+---@return number col
+local function sized(width)
+	local columns = vim.o.columns
+	if pad_size == 2 then
+		local w = math.floor(columns * 2 / 3)
+		return w, columns - w
+	elseif pad_size == 3 then
+		local margin = math.max(2, math.floor(columns * 0.05))
+		return columns - margin * 2 - 2, margin -- 2 for the borders
+	end
+	return width, columns - width
+end
+
+-- Defined below; pad keys (=w) need it
+local get_window_options
+
 ---Snacks window keys for a pad filetype: wrap toggle everywhere, run keys for runnable filetypes
 ---@param ft string|nil
 ---@return table
@@ -270,6 +295,25 @@ local function pad_keys(ft)
 			desc = "Help",
 		}
 	end
+	local size_key = (get_config().keymaps or {}).pad_size
+	if size_key then
+		keys.size = {
+			size_key,
+			function(self)
+				pad_size = pad_size % 3 + 1
+				local opts = get_window_options(nil, nil, vim.bo[self.buf].filetype)
+				vim.api.nvim_win_set_config(self.win, {
+					relative = "editor",
+					row = opts.row,
+					col = opts.col,
+					width = opts.width,
+					height = opts.height,
+				})
+				runner.relayout(self.win)
+			end,
+			desc = "Size",
+		}
+	end
 	keys.wrap = {
 		"<M-z>",
 		function(self)
@@ -290,14 +334,16 @@ end
 ---@param ft string|nil Pad filetype (adds run keys for runnable filetypes)
 ---@return table Window configuration for snacks.nvim
 ---@private
-local function get_window_options(width, height, ft)
+function get_window_options(width, height, ft)
 	local config = get_config()
 	width = width or config.width or math.min(math.floor(vim.o.columns / 3), 100)
 	height = height or config.height or default_window_height()
+	local col
+	width, col = sized(width)
 
 	return {
 		row = 1,
-		col = vim.o.columns - width,
+		col = col,
 		width = width,
 		height = height,
 		wo = {
@@ -891,6 +937,12 @@ function M.show_help(bufnr)
 		info.provider = provider and provider.name or nil
 	end
 	require("scratch-manager.help").open(info)
+end
+
+---Current pad size step (1 = default, 2 = two thirds, 3 = nearly full); for tests
+---@return number
+function M._pad_size()
+	return pad_size
 end
 
 ---Statusline component: the notes, code and/or db icon when the current buffer has those pads,

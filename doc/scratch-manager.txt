@@ -103,6 +103,7 @@ Default configuration:~
       toggle_lang = "=c",           -- Toggle scratch buffer (language-aware)
       toggle_db = "=q",             -- Toggle DB (SQL) scratch buffer
       pad_help = "=h",              -- Inside a pad: language-specific help
+      pad_size = "=w",              -- Inside a pad: cycle ⅓ → ⅔ → nearly full
       select = "=s",                -- Select from existing scratch buffers
       delete = "=d",                -- Delete current scratch buffer
     },
@@ -246,8 +247,10 @@ run                     (table)
     • show_warnings (boolean) Show compiler/NuGet build warnings in the
                             output. Hidden by default and counted in the
                             title; errors always show. Default: false
-    Output (stdout and stderr) appears in a float at the bottom of the pad
-    with the exit status and run time; `q` or <Esc> closes it. The first
+    Output (stdout and stderr) appears in a float at the bottom of the pad.
+    Its title shows the status and run time; a dimmed first line shows the
+    project, what ran (for selections) and hidden warnings. `q` or <Esc>
+    closes it. The first
     run builds and takes a few seconds; later runs reuse the build cache.
     The default passes `-p:PublishAot=false`: file-based apps otherwise
     default to native AOT, which disables reflection (for example
@@ -442,6 +445,9 @@ toggle_lang             =c              Toggle scratch buffer (language-aware)
 toggle_db               =q              Toggle DB (SQL) scratch buffer
 pad_help                =h              Inside a pad: help for that pad's
                                         language (false to disable)
+pad_size                =w              Inside a pad: cycle its size, ⅓ of
+                                        the screen → ⅔ → nearly full
+                                        (centered); stays for the session
 select                  =s              Select from existing scratch buffers
 delete                  =d              Delete current scratch buffer
 

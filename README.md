@@ -90,6 +90,7 @@ require("scratch-manager").setup({
     toggle_lang = "=c",           -- Toggle scratch buffer (language-aware)
     toggle_db = "=q",             -- Toggle DB (SQL) scratch buffer
     pad_help = "=h",              -- Inside a pad: language-specific help (false to disable)
+    pad_size = "=w",              -- Inside a pad: cycle its size, ⅓ → ⅔ → nearly full (false to disable)
     select = "=s",                -- Select from existing scratch buffers
     delete = "=d",                -- Delete current scratch buffer
   },
@@ -157,8 +158,15 @@ vim.keymap.set("n", "<leader>sl", function() sm.toggle_scratch_pad("lua") end, {
 | `=c` | Toggle Scratch (Language-aware) | Opens scratch buffer with detected filetype |
 | `=q` | Toggle Scratch (DB) | Opens a SQL scratch buffer for this file |
 | `=h` | Pad help | Inside a pad: what `<CR>` does there, keys, tips (C#, SQL, Lua, notes) |
+| `=w` | Pad size | Inside a pad: ⅓ of the screen → ⅔ → nearly full (centered); stays for the session |
 | `=s` | Select Scratch | Choose from existing scratch buffers |
 | `=d` | Delete Scratch | Delete the scratch pad (asks for confirmation; works from the pad or its source buffer) |
+
+### Pad size
+
+Pads open on the right third of the screen. `=w` inside a pad cycles it to two thirds (still on
+the right) and to nearly the full width (centered, with margins), then back. The size stays for
+the rest of the session, and the output window follows it. Handy for long `.Dump()` values.
 
 ### Wrapping
 

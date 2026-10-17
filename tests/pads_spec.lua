@@ -231,6 +231,35 @@ describe("scratch-manager pads", function()
       assert.equals(src_name, require("scratch-manager.store").get("pad_sources", vim.fs.normalize(pad_file)))
     end)
 
+    it("cycles the pad size with =w: a third, two thirds, nearly full, back", function()
+      vim.o.columns = 150
+      sm.setup({ enable_keymaps = false })
+      edit_source("bar.lua")
+      sm.toggle_scratch_pad("lua")
+      local first = calls[1].opts.win
+      assert.equals(50, first.width)
+      assert.equals(100, first.col)
+
+      local win = vim.api.nvim_open_win(vim.api.nvim_create_buf(false, true), false,
+        { relative = "editor", row = 1, col = first.col, width = first.width, height = 10 })
+      local key = first.keys.size
+      assert.equals("=w", key[1])
+      key[2]({ win = win, buf = vim.api.nvim_get_current_buf() })
+      assert.equals(100, vim.api.nvim_win_get_width(win)) -- two thirds, still on the right
+      assert.equals(50, vim.api.nvim_win_get_config(win).col)
+      key[2]({ win = win, buf = vim.api.nvim_get_current_buf() })
+      assert.equals(150 - 7 * 2 - 2, vim.api.nvim_win_get_width(win)) -- nearly full, 5% margins
+      assert.equals(7, vim.api.nvim_win_get_config(win).col)
+
+      -- the size sticks for pads opened afterwards
+      sm.toggle_scratch_pad("lua")
+      assert.equals(150 - 7 * 2 - 2, calls[2].opts.win.width)
+      key[2]({ win = win, buf = vim.api.nvim_get_current_buf() })
+      assert.equals(50, vim.api.nvim_win_get_width(win))
+      assert.equals(1, sm._pad_size())
+      vim.api.nvim_win_close(win, true)
+    end)
+
     it("closes the pad when toggled from inside it", function()
       local lua_pad = pad("bar.lua", "lua")
       list_items = { lua_pad }

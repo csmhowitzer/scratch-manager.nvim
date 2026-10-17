@@ -370,14 +370,21 @@ function M.close_output()
 	output.win = nil
 end
 
+local detail_ns = vim.api.nvim_create_namespace("scratch-manager-output-detail")
+
 ---Show run output in a float anchored to the bottom of the pad window
 ---@param lines string[] Output lines
----@param title string Window title
+---@param title string Window title (keep it short; it doesn't wrap)
 ---@param pad_win number|nil Pad window to anchor to (falls back to the editor)
 ---@param max_height number
-function M.show_output(lines, title, pad_win, max_height)
+---@param details string|nil Dimmed first line (project, what ran, hidden warnings); wraps
+function M.show_output(lines, title, pad_win, max_height, details)
+	output.last = { lines = lines, title = title, pad_win = pad_win, max_height = max_height, details = details }
 	if #lines == 0 then
 		lines = { "(no output)" }
+	end
+	if details then
+		lines = vim.list_extend({ details }, lines)
 	end
 	if not (output.buf and vim.api.nvim_buf_is_valid(output.buf)) then
 		output.buf = vim.api.nvim_create_buf(false, true)
@@ -389,6 +396,10 @@ function M.show_output(lines, title, pad_win, max_height)
 	vim.bo[output.buf].modifiable = true
 	vim.api.nvim_buf_set_lines(output.buf, 0, -1, false, lines)
 	vim.bo[output.buf].modifiable = false
+	vim.api.nvim_buf_clear_namespace(output.buf, detail_ns, 0, -1)
+	if details then
+		vim.api.nvim_buf_set_extmark(output.buf, detail_ns, 0, 0, { end_col = #details, hl_group = "Comment" })
+	end
 
 	local win_config
 	if pad_win and vim.api.nvim_win_is_valid(pad_win) then
@@ -460,6 +471,12 @@ function M.show_output(lines, title, pad_win, max_height)
 	end
 end
 
+---@param ms number
+---@return string
+local function duration(ms)
+	return ms < 1000 and (ms .. "ms") or ("%.1fs"):format(ms / 1000)
+end
+
 ---Run a C# scratch pad
 ---@param bufnr number Pad buffer
 ---@param config ScratchManagerRunConfig|nil
@@ -487,17 +504,21 @@ function M.run_csharp(bufnr, config)
 	vim.fn.writefile(compiled, file)
 	table.insert(cmd, file)
 
-	-- Say exactly what ran, so a selection that also pulled in using lines isn't a mystery
+	-- Details line: which project, and exactly what ran (a selection may have pulled in using lines)
 	local label = project and vim.fn.fnamemodify(project, ":t") or nil
-	local scope = ""
+	local details = {}
+	if label then
+		table.insert(details, label)
+	end
 	if range then
-		scope = (" · lines %d–%d"):format(range.first, range.last)
+		local scope = ("lines %d–%d"):format(range.first, range.last)
 		if usings > 0 then
 			scope = scope .. (" + %d using line%s"):format(usings, usings == 1 and "" or "s")
 		end
+		table.insert(details, scope)
 	end
-	local prefix = "dotnet run" .. (label and (" · " .. label) or "") .. scope
-	M.show_output({ project and ("Building with " .. label .. "…") or "Running…" }, prefix, pad_win, max_height)
+	M.show_output({ project and ("Building with " .. label .. "…") or "Running…" }, "dotnet run…", pad_win, max_height,
+		#details > 0 and table.concat(details, " · ") or nil)
 	local started = vim.uv.hrtime()
 	vim.system(cmd, { cwd = dir, text = true }, function(result)
 		vim.schedule(function()
@@ -526,14 +547,26 @@ function M.run_csharp(bufnr, config)
 				end, lines)
 			end
 			local ms = math.floor((vim.uv.hrtime() - started) / 1e6)
-			local status = result.code == 0 and "ok" or ("exit " .. result.code)
+			local status = result.code == 0 and "✓ ok" or ("✗ exit " .. result.code)
 			if #lines == 0 and dumped > 0 then
 				lines = { ("%d value%s shown inline (→, K for the full value)"):format(dumped, dumped == 1 and "" or "s") }
 			end
-			local note = hidden > 0 and (" · %d warning%s hidden"):format(hidden, hidden == 1 and "" or "s") or ""
-			M.show_output(lines, ("%s · %s · %dms%s"):format(prefix, status, ms, note), pad_win, max_height)
+			if hidden > 0 then
+				table.insert(details, ("%d warning%s hidden"):format(hidden, hidden == 1 and "" or "s"))
+			end
+			M.show_output(lines, ("dotnet run · %s · %s"):format(status, duration(ms)), pad_win, max_height,
+				#details > 0 and table.concat(details, " · ") or nil)
 		end)
 	end)
+end
+
+---Redraw the output window after its pad was resized
+---@param pad_win number
+function M.relayout(pad_win)
+	local last = output.last
+	if last and last.pad_win == pad_win and output.win and vim.api.nvim_win_is_valid(output.win) then
+		M.show_output(last.lines, last.title, last.pad_win, last.max_height, last.details)
+	end
 end
 
 ---Snacks window key spec for running C# pads (added to the pad window's keys)
