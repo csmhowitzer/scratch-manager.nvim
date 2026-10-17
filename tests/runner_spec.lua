@@ -186,6 +186,79 @@ describe("scratch-manager.runner", function()
     assert.truthy(vim.inspect(cfg.title):find("lines 3–4 %+ 1 using line"))
   end)
 
+  describe(".Dump() inline values", function()
+    local function marker(line, text)
+      return string.char(30) .. line .. string.char(31) .. text
+    end
+
+    local function virt_texts(buf)
+      local out = {}
+      for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+        if m[4].virt_text then
+          out[m[2] + 1] = m[4].virt_text[1][1]
+        end
+      end
+      return out
+    end
+
+    it("splits markers out of the output, grouped by pad line", function()
+      local rest, dumps, count = runner.extract_dumps({ marker(2, "found: True"), "plain", marker(5, "1"), marker(5, "2") })
+      assert.same({ "plain" }, rest)
+      assert.same({ [2] = { "found: True" }, [5] = { "1", "2" } }, dumps)
+      assert.equals(3, count)
+    end)
+
+    it("appends the helper only when the compiled lines use .Dump(", function()
+      local with = runner.compose({ "var a = 1;", "a.Dump();" }, nil, nil)
+      assert.truthy(table.concat(with, "\n"):find("static class ScratchManagerDump", 1, true))
+      assert.equals("#line default", with[4])
+      local without = runner.compose({ "var a = 1;" }, nil, nil)
+      assert.is_nil(table.concat(without, "\n"):find("ScratchManagerDump", 1, true))
+      local off = runner.compose({ "a.Dump();" }, nil, nil, { inline = false })
+      assert.is_nil(table.concat(off, "\n"):find("ScratchManagerDump", 1, true))
+      -- a selection without .Dump( doesn't get it either
+      local sel = runner.compose({ "a.Dump();", "var b = 2;" }, { first = 2, last = 2 }, nil)
+      assert.is_nil(table.concat(sel, "\n"):find("ScratchManagerDump", 1, true))
+    end)
+
+    it("shows values at the end of their lines and keeps them out of the output", function()
+      local buf = pad_buffer({ "var a = 1;", "a.Dump();", "foreach (var x in xs)", "    x.Dump();" })
+      local script = ("printf '%s\\n%s\\n%s\\n%s\\n'"):format(marker(2, "1"), marker(4, "a"), marker(4, "b"), marker(4, "c"))
+      runner.run_csharp(buf, { cmd = { "sh", "-c", script .. " #" } })
+      local lines = wait_for_output()
+      assert.same({ "4 values shown inline (→, K for the full value)" }, lines)
+      assert.same({ [2] = "  → 1", [4] = "  → (3×) a │ b │ c" }, virt_texts(buf))
+    end)
+
+    it("clears the values as soon as the pad changes", function()
+      local buf = pad_buffer({ "a.Dump();" })
+      runner.show_inline(buf, { [1] = { "1" } })
+      assert.equals("  → 1", virt_texts(buf)[1])
+      vim.cmd("doautocmd TextChanged")
+      assert.same({}, virt_texts(buf))
+    end)
+
+    it("truncates long values inline and shows them in full with K", function()
+      local buf = pad_buffer({ "info.Dump();" })
+      local long = '{"JobId":"6f1c","Notes":"' .. string.rep("x", 250) .. '"}'
+      runner.show_inline(buf, { [1] = { long } })
+      assert.truthy(virt_texts(buf)[1]:find("…$"))
+
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+      runner.show_dump_detail(buf)
+      local popup = vim.api.nvim_get_current_buf()
+      assert.same('  "JobId": "6f1c",', vim.api.nvim_buf_get_lines(popup, 1, 2, false)[1])
+      assert.equals("json", vim.bo[popup].filetype)
+      vim.cmd("close")
+    end)
+
+    it("pretty-prints JSON for the popup, leaving other values alone", function()
+      assert.same({ "digits: [", '  "1",', '  "2"', "]" }, runner.pretty('digits: ["1","2"]'))
+      assert.same({ "{", '  "a": "x, y: {z}",', '  "e": {}', "}" }, runner.pretty('{"a":"x, y: {z}","e":{}}'))
+      assert.same({ "found: True" }, runner.pretty("found: True"))
+    end)
+  end)
+
   it("points compiler messages at the pad instead of the hidden work file", function()
     local buf = pad_buffer({ "int x = \"oops\";" })
     runner.run_csharp(buf, { cmd = { "sh", "-c", 'echo "$0(1,9): error CS0029: Cannot convert"; exit 1' } })

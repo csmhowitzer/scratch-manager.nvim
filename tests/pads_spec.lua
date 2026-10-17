@@ -697,6 +697,17 @@ describe("scratch-manager pads", function()
         assert.equals("#a6d189", string.format("#%06x", vim.api.nvim_get_hl(0, { name = "ScratchManagerDbBorder" }).fg))
       end)
 
+      it("colors .Dump() values orange by default (not like diagnostics), configurable", function()
+        sm.setup({ enable_keymaps = false })
+        local default = vim.api.nvim_get_hl(0, { name = "ScratchManagerDump" })
+        assert.is_nil(default.link)
+        assert.equals("#fab387", string.format("#%06x", default.fg))
+        sm.setup({ enable_keymaps = false, highlights = { dump = { fg = "#94e2d5", italic = true } } })
+        local hl = vim.api.nvim_get_hl(0, { name = "ScratchManagerDump" })
+        assert.equals("#94e2d5", string.format("#%06x", hl.fg))
+        assert.is_true(hl.italic)
+      end)
+
       it("shows a DB badge to the left of the code badge", function()
         sm.setup({ enable_keymaps = false, indicator = { float = true, icon = "N", code_icon = "C", db_icon = "D" } })
         list_items = { pad("bar.lua", "markdown"), pad("bar.lua", "lua"), pad("bar.lua", "sql") }

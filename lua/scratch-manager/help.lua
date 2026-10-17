@@ -77,9 +77,22 @@ local function csharp(info)
 				{ "Key", "Action" },
 				{ "`<CR>`", "Run the whole pad" },
 				{ "`V` … `<CR>`", "Run only the selected lines" },
+				{ "`K`", "Full value of a `.Dump()` on the cursor line" },
 				{ "`q`", "Close the output (from inside it)" },
 			},
 		},
+		{ h = "Inline values: .Dump()" },
+		{
+			p = "Add `.Dump()` to any expression and its value shows at the end of that line when you run, instead of writing `Console.WriteLine` everywhere. Objects show as JSON; `K` opens the full, formatted value. `.Dump()` returns its value, so it works in the middle of a chain:",
+		},
+		{
+			code = {
+				'info.Dump();                                   // → {"JobId":"6f1c…","ExternalId":"HOVER-1182",…}',
+				'var digits = phones.Select(p => p.ToPhoneDigits()).Dump("digits")  // → digits: ["5551234567",…]',
+				"    .Select(d => d!.ToPhone()).Dump(\"formatted\");",
+			},
+		},
+		{ p = "A `.Dump()` in a loop shows every value: `(3×) 14 │ 11 │ 12`. Editing the pad clears the values until the next run." },
 		{ h = "Using your project" },
 		{
 			p = ("Runs with a reference to %s, so you can use its types directly (`using YourProject.Namespace;`). The first run builds the project; later runs are fast."):format(project),

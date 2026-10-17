@@ -111,6 +111,7 @@ require("scratch-manager").setup({
       max_height = 15,            -- Max height of the output window
       project = true,             -- reference the source file's nearest .csproj
       show_warnings = false,      -- show compiler/NuGet build warnings in the output
+      inline = true,              -- .Dump(): show values at the end of their lines
     },
     sql = {
       enabled = true,             -- <CR> in a DB pad runs it through the provider
@@ -214,6 +215,20 @@ an empty box grows from the badge to the pad's size (~150ms) before the pad open
   `using` lines at the top of the pad and any `#:` lines are included automatically, so a
   selected block still compiles; the output title says what ran (`lines 6–7 + 1 using line`).
   `=h` in any pad explains this and the rest of that language's features.
+- **Inline values with `.Dump()`** (LINQPad style): add `.Dump()` to any expression and its
+  value appears at the end of that line when you run, instead of writing `Console.WriteLine`
+  everywhere. Objects show as JSON, a `.Dump()` in a loop shows every value (`(3×) 14 │ 11 │ 12`),
+  and `K` on the line opens the full value, formatted. `.Dump()` returns its value, so it can
+  sit in the middle of a chain. Values clear when you edit the pad. They're orange and italic
+  so they don't look like diagnostics; change it with
+  `highlights = { dump = { fg = "#94e2d5", italic = true } }`.
+
+  ```csharp
+  payload.TryGetFinishJobInfo(out var info).Dump("found");  // → found: True
+  info.ExternalId.Dump();                                    // → "HOVER-1182"
+  var phones = raw.Select(p => p.ToPhoneDigits()).Dump("digits")  // → digits: ["5551234567",…]
+      .Select(d => d!.ToPhone()).Dump("formatted");               // → formatted: ["(555) 123-4567",…]
+  ```
 - **C# with your project**: a C# pad remembers the file it was opened from, and runs with a
   reference to the nearest `.csproj` above that file, so the pad can use the project's own
   types. The reference is added only to the compiled copy (your pad stays clean), line

@@ -28,6 +28,7 @@ local store = require("scratch-manager.store")
 ---@field db_border table|nil DB (SQL) pad border highlight (default: green)
 ---@field scratch_title table|nil Scratch buffer title highlight (default: blue, bold, italic)
 ---@field badge table|nil Floating badge icon highlight (default: blue, bold)
+---@field dump table|nil Inline .Dump() values in C# pads (default: orange, italic)
 
 ---@class ScratchManagerSelectionConfig
 ---@field max_items number Maximum items to show in selection UI (default: 20)
@@ -114,6 +115,7 @@ local default_config = {
 		db_border = { fg = "#a6d189", bold = true }, -- Green DB (SQL) pad border
 		scratch_title = { fg = "#74c7ec", bold = true, italic = true }, -- Blue scratch buffer title
 		badge = { fg = "#74c7ec", bold = true }, -- Blue floating badge icon
+		dump = { fg = "#fab387", italic = true }, -- Orange inline .Dump() values (distinct from diagnostics)
 	},
 	keymaps = {
 		toggle = "==", -- Markdown scratch buffer toggle
@@ -146,6 +148,7 @@ local default_config = {
 			cmd = { "dotnet", "run", "-p:PublishAot=false" },
 			max_height = 15,
 			show_warnings = false, -- hide compiler/NuGet build warnings from the output
+			inline = true, -- .Dump(): show values at the end of the line that produced them
 			project = true, -- reference the source file's nearest .csproj (#:project)
 		},
 		sql = {
@@ -251,6 +254,9 @@ local function pad_keys(ft)
 	local keys = {}
 	if ft == "cs" and run.cs and run.cs.enabled ~= false then
 		keys.run = runner.csharp_key(run.cs)
+		if run.cs.inline ~= false then
+			keys.value = runner.dump_detail_key()
+		end
 	elseif ft == "sql" and run.sql and run.sql.enabled ~= false and run.sql.provider ~= false then
 		keys = sql.keys(run.sql)
 	end
@@ -478,6 +484,9 @@ local function define_highlights()
 	vim.api.nvim_set_hl(0, "ScratchManagerHelpRule", { link = "FloatBorder", default = true })
 	vim.api.nvim_set_hl(0, "ScratchManagerHelpCode", { link = "String", default = true })
 	vim.api.nvim_set_hl(0, "ScratchManagerHelpBold", { bold = true, default = true })
+
+	-- Inline .Dump() values in C# pads - configurable (orange, so they don't look like diagnostics)
+	vim.api.nvim_set_hl(0, "ScratchManagerDump", hl.dump or { fg = "#fab387", italic = true })
 
 	-- Selection highlight for active item (not configurable)
 	vim.api.nvim_set_hl(0, "ScratchManagerSelected", {

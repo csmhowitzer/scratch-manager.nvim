@@ -124,6 +124,7 @@ Default configuration:~
         max_height = 15,            -- Max height of the output window
         project = true,             -- reference the nearest .csproj
         show_warnings = false,      -- show build warnings in the output
+        inline = true,              -- .Dump(): values at the end of lines
       },
       sql = {
         enabled = true,             -- <CR> in a DB pad runs it
@@ -232,6 +233,16 @@ run                     (table)
                             the compiled copy; error line numbers still
                             match the pad. Skipped when the pad has its own
                             `#:project` line. Default: true
+    • inline     (boolean)  `.Dump()` support: add `.Dump()` (or
+                            `.Dump("label")`) to an expression and its value
+                            shows at the end of that line; objects as JSON,
+                            loops as `(3×) a │ b │ c`. `K` on the line shows
+                            the full value. Returns the value, so it works
+                            mid-chain. Cleared when the pad changes.
+                            Color: `highlights.dump` (group
+                            `ScratchManagerDump`; default orange #fab387,
+                            italic, distinct from diagnostics).
+                            Default: true
     • show_warnings (boolean) Show compiler/NuGet build warnings in the
                             output. Hidden by default and counted in the
                             title; errors always show. Default: false
