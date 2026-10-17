@@ -14,6 +14,7 @@ local selection = require("scratch-manager.selection")
 local badge = require("scratch-manager.badge")
 local runner = require("scratch-manager.runner")
 local sql = require("scratch-manager.sql")
+local languages = require("scratch-manager.languages")
 local store = require("scratch-manager.store")
 
 ---@class ScratchManagerHighlights
@@ -218,12 +219,10 @@ local KINDS = { "notes", "code", "db" }
 ---@param ft string|nil Pad filetype
 ---@return "notes"|"code"|"db"
 local function pad_kind(ft)
-	if ft == nil or ft == "markdown" then
+	if ft == nil or ft == "" then
 		return "notes"
-	elseif ft == "sql" then
-		return "db"
 	end
-	return "code"
+	return languages.get(ft).kind
 end
 
 ---Border highlight group for a pad kind
@@ -275,15 +274,18 @@ local get_window_options
 ---@param ft string|nil
 ---@return table
 local function pad_keys(ft)
-	local run = get_config().run or {}
+	local lang = languages.get(ft)
+	local config = (get_config().run or {})[ft] or {}
 	local keys = {}
-	if ft == "cs" and run.cs and run.cs.enabled ~= false then
-		keys.run = runner.csharp_key(run.cs)
-		if run.cs.inline ~= false then
+	if lang.run and config.enabled ~= false then
+		keys.run = runner.run_key(ft, config)
+		if lang.run.inline and config.inline ~= false then
 			keys.value = runner.dump_detail_key()
 		end
-	elseif ft == "sql" and run.sql and run.sql.enabled ~= false and run.sql.provider ~= false then
-		keys = sql.keys(run.sql)
+	end
+	local extra = lang.keys and lang.keys(config)
+	if extra then
+		keys = vim.tbl_extend("force", keys, extra)
 	end
 	local help_key = (get_config().keymaps or {}).pad_help
 	if help_key then
@@ -858,16 +860,17 @@ local function autosave_pad(bufnr)
 	end
 end
 
----Make a DB pad connection-aware once (completion from the SQL provider, if it supports it)
+---Run the pad language's on_open hook once (DB pads: attach the remembered connection)
 ---@param bufnr number
 ---@private
-local function attach_db_pad(bufnr)
-	if vim.b[bufnr].scratch_manager_db_attached then
+local function on_pad_open(bufnr)
+	local ft = vim.bo[bufnr].filetype
+	local lang = languages.get(ft)
+	if ft == "" or not lang.on_open or vim.b[bufnr].scratch_manager_opened == ft then
 		return
 	end
-	vim.b[bufnr].scratch_manager_db_attached = true
-	local run = get_config().run or {}
-	pcall(sql.attach_pad, bufnr, run.sql)
+	vim.b[bufnr].scratch_manager_opened = ft
+	pcall(lang.on_open, bufnr, (get_config().run or {})[ft] or {})
 end
 
 ---Set up pad buffer hooks: autosave (write after every change, so leaving, closing or quitting
@@ -875,13 +878,13 @@ end
 ---@private
 local function setup_autosave()
 	local group = vim.api.nvim_create_augroup("ScratchManagerAutosave", { clear = true })
-	-- snacks sets the pad's filetype after BufEnter, so also catch DB pads on FileType
+	-- Language on_open hooks (DB pads: attach the connection). snacks sets the pad's filetype
+	-- after BufEnter, so also catch pads on FileType
 	vim.api.nvim_create_autocmd("FileType", {
 		group = group,
-		pattern = "sql",
 		callback = function(args)
 			if vim.startswith(vim.fs.normalize(vim.api.nvim_buf_get_name(args.buf)), scratch_root() .. "/") then
-				attach_db_pad(args.buf)
+				on_pad_open(args.buf)
 			end
 		end,
 	})
@@ -892,9 +895,7 @@ local function setup_autosave()
 		group = group,
 		pattern = scratch_root() .. "/*",
 		callback = function(args)
-			if vim.bo[args.buf].filetype == "sql" then
-				attach_db_pad(args.buf)
-			end
+			on_pad_open(args.buf)
 			if vim.b[args.buf].scratch_manager_autosave then
 				return
 			end
@@ -929,12 +930,9 @@ function M.show_help(bufnr)
 		help_key = (config.keymaps or {}).pad_help or "=h",
 		border_hl = border_hl(pad_kind(ft)),
 	}
-	if ft == "cs" and (run.cs or {}).project ~= false then
-		info.project = runner.find_project(bufnr)
-	elseif ft == "sql" then
-		info.connection = sql.get_connection_name(vim.api.nvim_buf_get_name(bufnr))
-		local provider = sql.get_provider(run.sql)
-		info.provider = provider and provider.name or nil
+	local lang = languages.get(ft)
+	if lang.help_info then
+		info = vim.tbl_extend("force", info, lang.help_info(bufnr, run[ft] or {}) or {})
 	end
 	require("scratch-manager.help").open(info)
 end

@@ -293,6 +293,16 @@ interact with scratch buffers:
    • Press `=d` to delete the scratch pad (asks for confirmation; works
      from inside the pad or from its source buffer)
 
+                                                    *scratch-manager-languages*
+Adding a language:~
+Language-specific behavior lives in profiles
+(`lua/scratch-manager/languages/<filetype>.lua`), or register one from your
+config with `require("scratch-manager.languages").register(ft, profile)`.
+Hooks: `run` (command, work file, prepare, hide_line, inline), `imports`,
+`is_import`, `adapt`, `insert_at`, `treesitter`, `comment`, `kind`, `keys`,
+`on_open`, `help`, `help_info`, `health`. See `languages/init.lua` and
+`languages/cs.lua`.
+
                                                     *scratch-manager-matching*
 How pads are matched:~
 A pad belongs to a file by its name, Neovim's working directory (|:pwd|),

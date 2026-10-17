@@ -18,6 +18,10 @@ if not vim.env.SCRATCH_MANAGER_TEST_HOME then
   vim.env.XDG_CACHE_HOME = vim.env.SCRATCH_MANAGER_TEST_HOME .. "/cache"
   vim.env.XDG_DATA_HOME = vim.env.SCRATCH_MANAGER_TEST_HOME .. "/data"
   vim.env.XDG_STATE_HOME = vim.env.SCRATCH_MANAGER_TEST_HOME .. "/state"
+  -- Create the shared dirs once, here, so parallel spec processes don't race on them
+  for _, dir in ipairs({ "/cache/scratch-manager", "/data/scratch-manager", "/data/scratch", "/state" }) do
+    vim.fn.mkdir(vim.env.SCRATCH_MANAGER_TEST_HOME .. dir, "p")
+  end
 end
 
 -- Keep the user's own config (plugin/, after/plugin/) out of the test processes

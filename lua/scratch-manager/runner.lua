@@ -1,16 +1,20 @@
----Run C# scratch pads with `dotnet run <file>.cs` (file-based apps, .NET 10+)
----No .sln or .csproj needed; output is shown in a float over the bottom of the pad
+---Run scratch pads: a language-neutral runner driven by the `run` spec of a language profile
+---(see scratch-manager.languages). The profile turns the pad into a file and names the command;
+---this module handles selections, the per-pad work directory, the output window, hiding noise,
+---and inline values (`\x1e<line>\x1f<text>` markers printed by the program, e.g. C#'s .Dump()).
+
+local languages = require("scratch-manager.languages")
 
 local M = {}
 
+---Per-language run settings (`run.<ft>` in the config); profiles may read extra fields
 ---@class ScratchManagerRunConfig
----@field enabled boolean Bind <CR> in C# pads to run them (default: true)
----@field cmd string[] Command to run; the source file path is appended
----                    (default: { "dotnet", "run", "-p:PublishAot=false" })
+---@field enabled boolean Bind <CR> in the pad to run it (default: true)
+---@field cmd string[]|nil Command to run; the work file path is appended (profile default otherwise)
 ---@field max_height number Maximum height of the output window (default: 15)
----@field project boolean Reference the source file's nearest .csproj via #:project (default: true)
----@field show_warnings boolean Show compiler/NuGet build warnings in the output (default: false)
----@field inline boolean Support `.Dump()`: values show at the end of the line that produced them (default: true)
+---@field show_warnings boolean Show lines the profile considers noise, e.g. build warnings (default: false)
+---@field inline boolean Show inline values (`.Dump()`) next to their lines (default: true)
+---@field project boolean C#: reference the source file's nearest .csproj via #:project (default: true)
 
 local output = {
 	buf = nil,
@@ -20,45 +24,6 @@ local output = {
 local dump_ns = vim.api.nvim_create_namespace("scratch-manager-dump")
 local dump_values = {} -- pad bufnr -> { [pad line] = { full values } }
 local detail = { buf = nil, win = nil }
-
--- Appended to the compiled copy when the pad uses `.Dump(`. Writes each value as
--- "\x1e<line>\x1f<text>" (line via [CallerLineNumber], which honors the #line mapping, so it is the
--- pad line). The runner turns those into virtual text and keeps them out of the output window.
--- Fully qualified names: using directives can't follow the pad's code.
-local DUMP_HELPER = vim.split([==[
-#line default
-static class ScratchManagerDump
-{
-    static readonly System.Text.Json.JsonSerializerOptions Options = new()
-    {
-        ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles,
-    };
-
-    public static T Dump<T>(this T value, string? label = null,
-        [System.Runtime.CompilerServices.CallerLineNumber] int line = 0)
-    {
-        string text;
-        try
-        {
-            text = value switch
-            {
-                null => "null",
-                string s => "\"" + s + "\"",
-                System.Text.Json.JsonElement e => e.GetRawText(),
-                System.Runtime.CompilerServices.ITuple => value.ToString()!,
-                System.IFormattable or bool or char => value.ToString()!,
-                _ => System.Text.Json.JsonSerializer.Serialize(value, Options),
-            };
-        }
-        catch (System.Exception ex)
-        {
-            text = value + " (" + ex.GetType().Name + ")";
-        }
-        text = text.Replace("\r", "").Replace("\n", " ");
-        System.Console.Out.WriteLine("\u001e" + line + "\u001f" + (label is null ? "" : label + ": ") + text);
-        return value;
-    }
-}]==], "\n")
 
 ---Clear inline `.Dump()` values from a pad
 ---@param bufnr number
@@ -239,39 +204,13 @@ function M.extract_dumps(lines)
 	return rest, dumps, count
 end
 
----Stable per-pad working directory, so dotnet can reuse its build cache between runs
+---Stable per-pad working directory, so tools can reuse their build caches between runs
 ---@param pad_file string Path of the scratch pad file
+---@param ft string|nil Pad filetype (default "cs")
 ---@return string dir
-function M.work_dir(pad_file)
+function M.work_dir(pad_file, ft)
 	local key = vim.fn.sha256(pad_file):sub(1, 16)
-	return vim.fn.stdpath("cache") .. "/scratch-manager/cs/" .. key
-end
-
----Nearest .csproj at or above the pad's source file (the file the pad was opened from)
----@param pad_bufnr number
----@return string|nil csproj Absolute path
-function M.find_project(pad_bufnr)
-	local source = vim.b[pad_bufnr].scratch_manager_source
-		or require("scratch-manager.store").get("pad_sources", vim.api.nvim_buf_get_name(pad_bufnr))
-	if type(source) ~= "string" or source == "" then
-		return nil
-	end
-	local found = vim.fs.find(function(name)
-		return name:match("%.csproj$") ~= nil
-	end, { upward = true, path = vim.fs.dirname(source), type = "file", limit = 1 })
-	return found[1]
-end
-
----Does the pad already reference a project with its own #: directive?
----@param lines string[]
----@return boolean
-local function has_project_directive(lines)
-	for _, line in ipairs(lines) do
-		if line:match("^%s*#:project%s") then
-			return true
-		end
-	end
-	return false
+	return vim.fn.stdpath("cache") .. "/scratch-manager/" .. (ft or "cs") .. "/" .. key
 end
 
 ---Selected line range when called from visual mode (and leave visual mode), otherwise nil
@@ -287,79 +226,6 @@ local function selection_range()
 		return { first = first, last = last }
 	end
 	return nil
-end
-
----Is this line a using directive (not a `using var x = ...;` / `using (...)` statement)?
----@param line string
----@return boolean
-local function is_using_directive(line)
-	return line:match("^%s*global%s+using%s") ~= nil
-		or line:match("^%s*using%s+static%s+[%w_.<>,%s]+;%s*$") ~= nil
-		or line:match("^%s*using%s+[%w_.]+%s*;%s*$") ~= nil
-		or line:match("^%s*using%s+[%w_]+%s*=%s*[%w_.<>,%s]+;%s*$") ~= nil
-end
-
----Build the file that gets compiled from the pad lines.
----
----- `#:` directives (the pad's own, plus the project reference) are hoisted to the very top, as
----  dotnet requires; in the body they become blank lines so line numbers don't move.
----- For a selection, the using directives at the top of the pad are included too (each tagged
----  with its pad line number), so a selected block that relies on them still compiles.
----- `#line` keeps compiler line numbers matching the pad.
----@param pad_lines string[] All lines of the pad
----@param range { first: number, last: number }|nil Selected lines, nil for the whole pad
----@param project string|nil .csproj to reference
----@param opts? { inline?: boolean } inline (default true): append the `.Dump()` helper when used
----@return string[] compiled
----@return number usings Number of using lines added for a selection
-function M.compose(pad_lines, range, project, opts)
-	opts = opts or {}
-	local directives, body_start = {}, 1
-	if project then
-		table.insert(directives, "#:project " .. project)
-	end
-	for _, line in ipairs(pad_lines) do
-		if line:match("^%s*#:") then
-			table.insert(directives, vim.trim(line))
-		end
-	end
-
-	local first, last = 1, #pad_lines
-	if range then
-		first, last = range.first, range.last
-	end
-
-	local compiled = vim.list_extend({}, directives)
-	local usings = 0
-	if range then
-		-- Using directives in the pad's header (before its first line of code), outside the selection
-		for lnum, line in ipairs(pad_lines) do
-			local blank = line:match("^%s*$") or line:match("^%s*//") or line:match("^%s*#[:!]")
-			if not blank and not is_using_directive(line) then
-				break
-			end
-			if lnum >= first then
-				break
-			end
-			if is_using_directive(line) then
-				vim.list_extend(compiled, { "#line " .. lnum, line })
-				usings = usings + 1
-			end
-		end
-	end
-	body_start = first
-
-	table.insert(compiled, "#line " .. body_start)
-	local uses_dump = false
-	for lnum = first, last do
-		local line = pad_lines[lnum]
-		table.insert(compiled, line:match("^%s*#:") and "" or line)
-		uses_dump = uses_dump or line:find(".Dump(", 1, true) ~= nil
-	end
-	if uses_dump and opts.inline ~= false then
-		vim.list_extend(compiled, DUMP_HELPER)
-	end
-	return compiled, usings
 end
 
 ---Close the output window if it is open
@@ -477,69 +343,103 @@ local function duration(ms)
 	return ms < 1000 and (ms .. "ms") or ("%.1fs"):format(ms / 1000)
 end
 
----Run a C# scratch pad
+---Create a directory, tolerating another process creating it (or a parent) at the same time
+---(`mkdir -p` can fail with E739 "file already exists" in that race)
+---@param dir string
+function M.ensure_dir(dir)
+	for _ = 1, 3 do
+		pcall(vim.fn.mkdir, dir, "p")
+		if vim.fn.isdirectory(dir) == 1 then
+			return
+		end
+	end
+	error("Could not create " .. dir)
+end
+
+---"lines a–b" for a selection, with an optional extra ("+ 1 using line")
+---@param range { first: number, last: number }
+---@param extra string|nil
+---@return string
+local function scope_text(range, extra)
+	local text = ("lines %d–%d"):format(range.first, range.last)
+	return extra and (text .. " + " .. extra) or text
+end
+
+---Run a pad with its language's run spec
 ---@param bufnr number Pad buffer
+---@param ft string Pad filetype (selects the language profile)
 ---@param config ScratchManagerRunConfig|nil
-function M.run_csharp(bufnr, config)
+function M.run(bufnr, ft, config)
 	config = config or {}
-	local cmd = vim.deepcopy(config.cmd or { "dotnet", "run", "-p:PublishAot=false" })
+	local spec = languages.get(ft).run
+	if not spec then
+		vim.notify("No runner for " .. ft .. " pads", vim.log.levels.WARN)
+		return
+	end
+	local cmd = spec.cmd(config)
 	local max_height = config.max_height or 15
 	if vim.fn.executable(cmd[1]) ~= 1 then
-		vim.notify(cmd[1] .. " not found on PATH (C# pads need the .NET 10+ SDK)", vim.log.levels.ERROR)
+		vim.notify(spec.missing and spec.missing(cmd) or (cmd[1] .. " not found on PATH"), vim.log.levels.ERROR)
 		return
 	end
 
 	local pad_win = vim.fn.bufwinid(bufnr)
 	pad_win = pad_win ~= -1 and pad_win or nil
-	local dir = M.work_dir(vim.api.nvim_buf_get_name(bufnr))
-	vim.fn.mkdir(dir, "p")
-	local file = dir .. "/scratch.cs"
+	local dir = M.work_dir(vim.api.nvim_buf_get_name(bufnr), ft)
+	M.ensure_dir(dir)
+	local file = dir .. "/" .. spec.file
 	local range = selection_range()
 	local pad_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-	-- Reference the source file's project so the pad can use its types
-	local project = config.project ~= false and not has_project_directive(pad_lines) and M.find_project(bufnr) or nil
-	local compiled, usings = M.compose(pad_lines, range, project, { inline = config.inline })
+	local compiled, details, placeholder
+	if spec.prepare then
+		compiled, details, placeholder = spec.prepare({
+			bufnr = bufnr,
+			pad_lines = pad_lines,
+			range = range,
+			config = config,
+			scope = function(extra)
+				return scope_text(range, extra)
+			end,
+		})
+	else
+		compiled = range and vim.list_slice(pad_lines, range.first, range.last) or pad_lines
+	end
+	details = details or {}
+	if range and not spec.prepare then
+		table.insert(details, scope_text(range))
+	end
 	M.clear_inline(bufnr)
 	vim.fn.writefile(compiled, file)
 	table.insert(cmd, file)
 
-	-- Details line: which project, and exactly what ran (a selection may have pulled in using lines)
-	local label = project and vim.fn.fnamemodify(project, ":t") or nil
-	local details = {}
-	if label then
-		table.insert(details, label)
-	end
-	if range then
-		local scope = ("lines %d–%d"):format(range.first, range.last)
-		if usings > 0 then
-			scope = scope .. (" + %d using line%s"):format(usings, usings == 1 and "" or "s")
-		end
-		table.insert(details, scope)
-	end
-	M.show_output({ project and ("Building with " .. label .. "…") or "Running…" }, "dotnet run…", pad_win, max_height,
+	local title = spec.title or table.concat(cmd, " ", 1, 1)
+	M.show_output({ placeholder or "Running…" }, title .. "…", pad_win, max_height,
 		#details > 0 and table.concat(details, " · ") or nil)
 	local started = vim.uv.hrtime()
 	vim.system(cmd, { cwd = dir, text = true }, function(result)
 		vim.schedule(function()
 			local text = (result.stdout or "") .. (result.stderr or "")
-			-- Point compiler messages at the pad instead of the hidden work file
-			text = text:gsub(vim.pesc(file) .. "%(", "pad(")
+			-- Point messages at the pad instead of the hidden work file
+			text = text:gsub(vim.pesc(file), "pad")
 			local lines = vim.split(vim.trim(text), "\n", { plain = true })
 			if #lines == 1 and lines[1] == "" then
 				lines = {}
 			end
-			-- `.Dump()` values go next to their lines instead of into the output window
-			local dumps, dumped
-			lines, dumps, dumped = M.extract_dumps(lines)
-			if dumped > 0 and vim.api.nvim_buf_is_valid(bufnr) then
-				M.show_inline(bufnr, dumps)
+			-- Inline values go next to their lines instead of into the output window
+			local dumped = 0
+			if spec.inline and config.inline ~= false then
+				local dumps
+				lines, dumps, dumped = M.extract_dumps(lines)
+				if dumped > 0 and vim.api.nvim_buf_is_valid(bufnr) then
+					M.show_inline(bufnr, dumps)
+				end
 			end
-			-- Build warnings (CS/NU/IL codes, often from the referenced project) are noise in a pad
+			-- Noise the profile recognizes (e.g. build warnings), unless asked to show it
 			local hidden = 0
-			if not config.show_warnings then
+			if spec.hide_line and not config.show_warnings then
 				lines = vim.tbl_filter(function(line)
-					if line:match(": warning %u+%d+:") then
+					if spec.hide_line(line) then
 						hidden = hidden + 1
 						return false
 					end
@@ -554,7 +454,7 @@ function M.run_csharp(bufnr, config)
 			if hidden > 0 then
 				table.insert(details, ("%d warning%s hidden"):format(hidden, hidden == 1 and "" or "s"))
 			end
-			M.show_output(lines, ("dotnet run · %s · %s"):format(status, duration(ms)), pad_win, max_height,
+			M.show_output(lines, ("%s · %s · %s"):format(title, status, duration(ms)), pad_win, max_height,
 				#details > 0 and table.concat(details, " · ") or nil)
 		end)
 	end)
@@ -569,16 +469,18 @@ function M.relayout(pad_win)
 	end
 end
 
----Snacks window key spec for running C# pads (added to the pad window's keys)
+---Snacks window key spec that runs a pad (added to the pad window's keys)
+---@param ft string
 ---@param config ScratchManagerRunConfig|nil
 ---@return table key
-function M.csharp_key(config)
+function M.run_key(ft, config)
+	local spec = languages.get(ft).run or {}
 	return {
 		"<cr>",
 		function(self)
-			M.run_csharp(self.buf, config)
+			M.run(self.buf, ft, config)
 		end,
-		desc = "Run (dotnet run)",
+		desc = spec.desc or "Run",
 		mode = { "n", "x" },
 	}
 end
@@ -593,6 +495,20 @@ function M.dump_detail_key()
 		end,
 		desc = "Value",
 	}
+end
+
+-- C# conveniences (the C# specifics live in scratch-manager.languages.cs)
+function M.run_csharp(bufnr, config)
+	M.run(bufnr, "cs", config)
+end
+function M.csharp_key(config)
+	return M.run_key("cs", config)
+end
+M.compose = function(...)
+	return languages.get("cs").compose(...)
+end
+M.find_project = function(...)
+	return languages.get("cs").find_project(...)
 end
 
 -- Expose internal state for testing

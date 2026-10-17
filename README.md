@@ -374,6 +374,31 @@ require("scratch-manager").open_pad()          -- open the current buffer's pad
 
 See `:help scratch-manager-functions` for complete API documentation.
 
+## Adding a language
+
+Language-specific behavior lives in small profiles (`lua/scratch-manager/languages/<filetype>.lua`),
+so running pads, `=p`, `=h` help and health checks stay generic. A profile can also be registered
+from your config; every field is optional. For example, a minimal Python runner:
+
+```lua
+require("scratch-manager.languages").register("python", {
+  run = {
+    title = "python",
+    file = "scratch.py",
+    cmd = function(config) return config.cmd or { "python3" } end, -- the file path is appended
+  },
+  imports = function(lines) -- what `=p` should bring along from the source file
+    return vim.tbl_filter(function(l) return l:match("^import ") or l:match("^from .+ import ") end, lines)
+  end,
+  is_import = function(line) return line:match("^import ") or line:match("^from .+ import ") end,
+})
+```
+
+`<CR>` then runs Python pads (selections too) with the same output window. Programs can print
+`\x1e<line>\x1f<text>` lines to show values inline, the way C#'s `.Dump()` does. See
+`lua/scratch-manager/languages/init.lua` for every hook (`run`, `imports`, `adapt`, `insert_at`,
+`kind`, `keys`, `on_open`, `help`, `health`, …) and `languages/cs.lua` for a complete example.
+
 ## Examples
 
 ### Integration with which-key.nvim

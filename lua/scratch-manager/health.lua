@@ -67,36 +67,18 @@ local function check_dependencies()
     vim.health.info("Icon provider - none (optional: mini.icons or nvim-web-devicons for colored icons)")
   end
 
-  -- C# pads: `dotnet run file.cs` needs the .NET 10+ SDK
-  if vim.fn.executable("dotnet") == 1 then
-    local newest = 0
-    for _, line in ipairs(vim.fn.systemlist({ "dotnet", "--list-sdks" })) do
-      local major = tonumber(line:match("^(%d+)%."))
-      if major and major > newest then
-        newest = major
-      end
-    end
-    if newest >= 10 then
-      vim.health.ok(".NET SDK " .. newest .. " - C# pads can run (dotnet run file.cs)")
-    else
-      vim.health.warn(".NET SDK " .. (newest > 0 and newest or "?") .. " - C# pads need .NET 10+ to run",
-        "Install the .NET 10 SDK, or disable with run = { cs = { enabled = false } }")
-    end
-  else
-    vim.health.info("dotnet - not found (optional: needed to run C# pads)")
-  end
-
-  -- DB pads: pluggable SQL provider (enhance.nvim adapter by default, never required)
+  -- Language profiles report their own optional tools (C#: .NET SDK, SQL: provider, ...)
   local ok_sm, sm = pcall(require, "scratch-manager")
-  local sql_config = ok_sm and sm.config and sm.config.run and sm.config.run.sql or { provider = "enhance" }
-  if sql_config.enabled == false or sql_config.provider == false then
-    vim.health.info("DB pads - running disabled (run.sql)")
-  else
-    local provider, err = require("scratch-manager.sql").get_provider(sql_config)
-    if provider then
-      vim.health.ok("DB pads - SQL provider " .. provider.name .. " (" .. #(provider.connections() or {}) .. " connections)")
-    else
-      vim.health.info("DB pads - " .. err .. " (optional: install enhance.nvim or set run.sql.provider)")
+  local run = ok_sm and sm.config and sm.config.run or {}
+  local languages = require("scratch-manager.languages")
+  local report = { ok = vim.health.ok, warn = vim.health.warn, info = vim.health.info }
+  for _, ft in ipairs(languages.known()) do
+    local lang = languages.get(ft)
+    if lang.health then
+      local ok, err = pcall(lang.health, report, run[ft])
+      if not ok then
+        vim.health.warn(ft .. " health check failed: " .. tostring(err))
+      end
     end
   end
   

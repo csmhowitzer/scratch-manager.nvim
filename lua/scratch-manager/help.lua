@@ -1,6 +1,7 @@
----Per-language help for scratch pads (`=h` inside a pad)
+---Help for scratch pads (`=h` inside a pad)
 ---
----Content is written as simple blocks (heading, paragraph, table, list, code) and rendered to
+---Each language profile provides its own help(info, helpers); this module adds the common "All
+---pads" section and renders everything. Content is written as simple blocks (heading, paragraph, table, list, code) and rendered to
 ---formatted text with highlights, so it reads well without a markdown plugin. Inline `code` and
 ---**bold** are highlighted with their markers removed. Content includes the pad's own details
 ---(source file, project, connection) so it answers "what will <CR> do here?"
@@ -15,9 +16,9 @@ local ns = vim.api.nvim_create_namespace("scratch-manager-help")
 ---@field kind "notes"|"code"|"db"
 ---@field name string|nil Pad name, e.g. "StringExtensions.cs"
 ---@field source string|nil File the pad belongs to
----@field project string|nil .csproj a C# pad will reference
----@field connection string|nil Remembered DB connection
----@field provider string|nil SQL provider name (nil when none is available)
+---@field project string|nil .csproj a C# pad will reference (from the C# profile's help_info)
+---@field connection string|nil Remembered DB connection (from the SQL profile's help_info)
+---@field provider string|nil SQL provider name (from the SQL profile's help_info)
 ---@field keymaps table Configured global keymaps
 ---@field help_key string Key that opens this help
 ---@field border_hl string
@@ -65,143 +66,10 @@ end
 
 ---@param info ScratchManagerHelpInfo
 ---@return table[] blocks
-local function csharp(info)
-	local project = info.project and ("`" .. vim.fn.fnamemodify(info.project, ":t") .. "`")
-		or "no project yet (open the pad from a file inside a project)"
-	return {
-		{ title = "C# scratch pad · " .. source_name(info) },
-		{
-			p = ("Throwaway C# for **%s**. It runs with `dotnet run` on a single file (.NET 10), so no `.sln` or `.csproj` is needed."):format(source_name(info)),
-		},
-		{
-			t = {
-				{ "Key", "Action" },
-				{ "`<CR>`", "Run the whole pad" },
-				{ "`V` … `<CR>`", "Run only the selected lines" },
-				{ "`K`", "Full value of a `.Dump()` on the cursor line (or make the pad wider with " .. k(info.keymaps.pad_size) .. ")" },
-				{ "`q`", "Close the output (from inside it)" },
-			},
-		},
-		{ h = "Inline values: .Dump()" },
-		{
-			p = "Add `.Dump()` to any expression and its value shows at the end of that line when you run, instead of writing `Console.WriteLine` everywhere. Objects show as JSON; `K` opens the full, formatted value. `.Dump()` returns its value, so it works in the middle of a chain:",
-		},
-		{
-			code = {
-				'info.Dump();                                   // → {"JobId":"6f1c…","ExternalId":"HOVER-1182",…}',
-				'var digits = phones.Select(p => p.ToPhoneDigits()).Dump("digits")  // → digits: ["5551234567",…]',
-				"    .Select(d => d!.ToPhone()).Dump(\"formatted\");",
-			},
-		},
-		{ p = "A `.Dump()` in a loop shows every value: `(3×) 14 │ 11 │ 12`. Editing the pad clears the values until the next run." },
-		{ h = "Using your project" },
-		{
-			p = ("Runs with a reference to %s, so you can use its types directly (`using YourProject.Namespace;`). The first run builds the project; later runs are fast."):format(project),
-		},
-		{
-			p = "Build warnings are hidden and counted in the output title. Errors always show, with pad line numbers, for example `pad(7,9): error CS0029`.",
-		},
-		{ h = "Running a selection" },
-		{
-			p = "Only the selected lines run, **plus** the `using` lines at the top of the pad and any `#:` lines, so a selected block still finds its namespaces. The output title says exactly what ran, for example `lines 6–7 + 1 using line`.",
-		},
-		{ h = "#: directives" },
-		{ p = "Single-file apps have no `.csproj`; these lines at the top of the file replace it:" },
-		{
-			t = {
-				{ "Directive", "Replaces (in a .csproj)", "Example" },
-				{ "`#:package`", "`<PackageReference>`", "`#:package Humanizer@2.14.1`" },
-				{ "`#:project`", "`<ProjectReference>`", "`#:project ../Billing/Billing.csproj`" },
-				{ "`#:property`", "a `<PropertyGroup>` setting", "`#:property LangVersion=preview`" },
-				{ "`#:sdk`", "`<Project Sdk=\"...\">`", "`#:sdk Microsoft.NET.Sdk.Web`" },
-			},
-		},
-		{
-			p = "The project reference above is added for you, and reflection-based JSON works (`PublishAot=false` is passed for you).",
-		},
-		{ h = "Tips" },
-		{
-			ul = {
-				"Statements come first; `record` / `class` declarations go at the bottom.",
-				"Good fits: pure functions, mappers, parsing a pasted webhook payload, checking what `JsonSerializer` produces.",
-				"Code that needs DI, a database or Kafka fits a real test better.",
-			},
-		},
-		{
-			code = {
-				"using System.Text.Json;",
-				"",
-				'var payload = JsonDocument.Parse("""{ "JobInfo": { "Id": 42 } }""").RootElement;',
-				'Console.WriteLine(payload.GetProperty("JobInfo").GetProperty("Id").GetInt32());',
-			},
-		},
-	}
-end
-
----@param info ScratchManagerHelpInfo
----@return table[] blocks
-local function sql(info)
-	local blocks = {
-		{ title = "DB scratch pad (SQL) · " .. source_name(info) },
-		{ p = ("SQL for **%s**, run through **%s**."):format(source_name(info), info.provider or "no SQL provider") },
-		{
-			t = {
-				{ "Key", "Action" },
-				{ "`<CR>`", "Run the whole pad" },
-				{ "`V` … `<CR>`", "Run only the selected statements" },
-				{ "`<leader>dc`", "Choose the connection" },
-			},
-		},
-		{ h = "Connection" },
-		{
-			p = info.connection and ("This pad runs on **%s** (remembered per pad)."):format(info.connection)
-				or "No connection yet: the first run asks, then the pad remembers it.",
-		},
-		{ h = "Completion" },
-		{
-			p = "On SQL Server connections, table and column names are suggested as you type (vim-dadbod-completion). `Ctrl-x Ctrl-o` asks for suggestions manually.",
-		},
-		{ h = "Results" },
-		{
-			p = "Results open in enhance.nvim's results window. The pad closes when you run so the results get the full width; reopen it with the DB pad key or its badge.",
-		},
-	}
-	if not info.provider then
-		vim.list_extend(blocks, {
-			{ h = "No provider" },
-			{
-				p = "Running needs enhance.nvim (or a custom provider in `run.sql.provider`). Without one this is still a saved SQL scratch pad.",
-			},
-		})
-	end
-	return blocks
-end
-
----@param info ScratchManagerHelpInfo
----@return table[] blocks
-local function lua(info)
-	return {
-		{ title = "Lua scratch pad · " .. source_name(info) },
-		{ p = ("Lua for **%s**, run by snacks.nvim inside this Neovim."):format(source_name(info)) },
-		{
-			t = {
-				{ "Key", "Action" },
-				{ "`<CR>`", "Run the whole pad; results show next to the lines" },
-				{ "`V` … `<CR>`", "Run only the selection" },
-			},
-		},
-		{
-			p = "It runs in your live editor, so `vim.api` and your plugins are available: handy for trying config snippets. It can also change your current session.",
-		},
-	}
-end
-
----@param info ScratchManagerHelpInfo
----@return table[] blocks
 local function notes(info)
 	return {
 		{ title = "Notes scratch pad · " .. source_name(info) },
-		{ p = ("Markdown notes for **%s**. Long lines wrap (`<M-z>` toggles)."):format(source_name(info)) },
+		{ p = ("Notes for **%s**. Long lines wrap (`<M-z>` toggles)."):format(source_name(info)) },
 	}
 end
 
@@ -217,17 +85,20 @@ local function other(info)
 	}
 end
 
+-- Helpers handed to language profiles' help(info, helpers)
+local helpers = {
+	source_name = source_name,
+	key = k,
+}
+
 ---Help content for a pad, as blocks
 ---@param info ScratchManagerHelpInfo
 ---@return table[]
 function M.blocks(info)
+	local lang = require("scratch-manager.languages").get(info.ft)
 	local body
-	if info.ft == "cs" then
-		body = csharp(info)
-	elseif info.ft == "sql" then
-		body = sql(info)
-	elseif info.ft == "lua" then
-		body = lua(info)
+	if lang.help then
+		body = lang.help(info, helpers)
 	elseif info.kind == "notes" then
 		body = notes(info)
 	else

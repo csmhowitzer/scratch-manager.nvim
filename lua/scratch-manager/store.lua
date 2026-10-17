@@ -35,7 +35,8 @@ end
 function M.set(name, key, value)
 	local data = M.read(name)
 	data[key] = value
-	vim.fn.mkdir(vim.fn.fnamemodify(M.path(name), ":h"), "p")
+	local dir = vim.fn.fnamemodify(M.path(name), ":h")
+	pcall(vim.fn.mkdir, dir, "p") -- tolerate another process creating it at the same time
 	vim.fn.writefile({ vim.json.encode(data) }, M.path(name))
 end
 
