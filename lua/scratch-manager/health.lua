@@ -41,12 +41,12 @@ local function check_neovim_version()
   local version = vim.version()
   local version_str = string.format('%s.%s.%s', version.major, version.minor, version.patch)
   
-  -- Require Neovim 0.9.0+ for modern health check API
-  if vim.version.cmp(version, { 0, 9, 0 }) >= 0 then
+  -- Require Neovim 0.10.0+ (floating window footers in the selection UI)
+  if vim.version.cmp(version, { 0, 10, 0 }) >= 0 then
     vim.health.ok("Neovim version: " .. version_str .. " (compatible)")
   else
-    vim.health.error("Neovim version: " .. version_str .. " (requires 0.9.0+)",
-      "Upgrade to Neovim 0.9.0 or later")
+    vim.health.error("Neovim version: " .. version_str .. " (requires 0.10.0+)",
+      "Upgrade to Neovim 0.10.0 or later")
   end
 end
 
@@ -58,6 +58,47 @@ local function check_dependencies()
     { name = "folke/snacks.nvim", module = "snacks", required = true },
     { name = "nvim-lua/plenary.nvim", module = "plenary", required = false, note = "Required for testing" },
   }
+
+  -- Colored icons in the select list (either provider; built-in icons otherwise)
+  local provider = require("scratch-manager.icon_provider").get_provider_name()
+  if provider ~= "fallback" then
+    vim.health.ok("Icon provider - " .. provider)
+  else
+    vim.health.info("Icon provider - none (optional: mini.icons or nvim-web-devicons for colored icons)")
+  end
+
+  -- C# pads: `dotnet run file.cs` needs the .NET 10+ SDK
+  if vim.fn.executable("dotnet") == 1 then
+    local newest = 0
+    for _, line in ipairs(vim.fn.systemlist({ "dotnet", "--list-sdks" })) do
+      local major = tonumber(line:match("^(%d+)%."))
+      if major and major > newest then
+        newest = major
+      end
+    end
+    if newest >= 10 then
+      vim.health.ok(".NET SDK " .. newest .. " - C# pads can run (dotnet run file.cs)")
+    else
+      vim.health.warn(".NET SDK " .. (newest > 0 and newest or "?") .. " - C# pads need .NET 10+ to run",
+        "Install the .NET 10 SDK, or disable with run = { cs = { enabled = false } }")
+    end
+  else
+    vim.health.info("dotnet - not found (optional: needed to run C# pads)")
+  end
+
+  -- DB pads: pluggable SQL provider (enhance.nvim adapter by default, never required)
+  local ok_sm, sm = pcall(require, "scratch-manager")
+  local sql_config = ok_sm and sm.config and sm.config.run and sm.config.run.sql or { provider = "enhance" }
+  if sql_config.enabled == false or sql_config.provider == false then
+    vim.health.info("DB pads - running disabled (run.sql)")
+  else
+    local provider, err = require("scratch-manager.sql").get_provider(sql_config)
+    if provider then
+      vim.health.ok("DB pads - SQL provider " .. provider.name .. " (" .. #(provider.connections() or {}) .. " connections)")
+    else
+      vim.health.info("DB pads - " .. err .. " (optional: install enhance.nvim or set run.sql.provider)")
+    end
+  end
   
   for _, dep in ipairs(dependencies) do
     local success, error_msg = check_module_loadable(dep.module)
@@ -294,7 +335,10 @@ local function check_scratch_functionality()
     "open_new_scratch_pad",
     "open_scratch",
     "find_existing_scratch_pad",
-    "delete_current_scratch_pad"
+    "find_scratch_pads",
+    "delete_current_scratch_pad",
+    "refresh_indicator",
+    "status"
   }
 
   for _, func_name in ipairs(functions_to_check) do

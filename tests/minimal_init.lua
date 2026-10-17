@@ -1,26 +1,35 @@
 -- Minimal init for testing scratch-manager.nvim
--- This sets up the Lua path so tests can find the plugin modules
+-- Works with `nvt` (nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests")
 
--- Add the plugin's lua directory to the package path
 local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
-local lua_dir = plugin_dir .. "/lua"
 
--- Add to package.path if not already there
-if not package.path:find(lua_dir, 1, true) then
-  package.path = lua_dir .. "/?.lua;" .. lua_dir .. "/?/init.lua;" .. package.path
+-- Plenary runs every spec in a child nvim. Without a minimal_init option those children would
+-- load the user's full config, so point them back at this file via $VIMINIT (used when no -u is given).
+vim.env.VIMINIT = "luafile " .. vim.fn.fnameescape(plugin_dir .. "/tests/minimal_init.lua")
+
+-- Find plugins before redirecting XDG dirs below; children inherit LAZY_DIR
+vim.env.LAZY_DIR = vim.env.LAZY_DIR or (vim.fn.stdpath("data") .. "/lazy")
+
+-- Keep test artifacts (C# runner work dirs, scratch pad files) out of the user's real cache and
+-- data dirs. stdpath() is fixed at startup, so this applies to the per-spec child processes,
+-- which inherit the env.
+if not vim.env.SCRATCH_MANAGER_TEST_HOME then
+  vim.env.SCRATCH_MANAGER_TEST_HOME = vim.fn.tempname()
+  vim.env.XDG_CACHE_HOME = vim.env.SCRATCH_MANAGER_TEST_HOME .. "/cache"
+  vim.env.XDG_DATA_HOME = vim.env.SCRATCH_MANAGER_TEST_HOME .. "/data"
+  vim.env.XDG_STATE_HOME = vim.env.SCRATCH_MANAGER_TEST_HOME .. "/state"
 end
 
--- Ensure plenary is available
-local ok, plenary = pcall(require, "plenary")
-if not ok then
-  error("plenary.nvim is required for testing")
+-- Add the plugin and its test dependencies (installed via lazy.nvim) to the runtimepath
+local lazy_dir = vim.env.LAZY_DIR
+vim.opt.rtp:prepend(plugin_dir)
+for _, dep in ipairs({ "plenary.nvim", "snacks.nvim" }) do
+  local path = lazy_dir .. "/" .. dep
+  if vim.fn.isdirectory(path) == 0 then
+    error(dep .. " is required for testing (looked in " .. lazy_dir .. "; set $LAZY_DIR to override)")
+  end
+  vim.opt.rtp:append(path)
 end
+vim.cmd("runtime plugin/plenary.vim")
 
--- Ensure snacks.nvim is available (dependency for scratch-manager)
-local snacks_ok, snacks = pcall(require, "snacks")
-if not snacks_ok then
-  error("snacks.nvim is required for scratch-manager.nvim")
-end
-
--- Set minimal vim options for testing
-vim.opt.runtimepath:append(plugin_dir)
+vim.opt.swapfile = false

@@ -18,14 +18,23 @@ A powerful scratch buffer management plugin that enhances [folke/snacks.nvim](ht
 - **Session Persistence**: Scratch buffers survive across Neovim sessions and reload intelligently
 - **Intuitive Keymaps**: Quick access with customizable key bindings that fit your workflow
 - **Health Check Integration**: Comprehensive diagnostics and validation system
-- **Professional Test Suite**: 92 comprehensive test cases ensuring reliability
+- **Scratch Pad Indicator**: Statusline component that shows when the current buffer has a scratch pad
+- **Professional Test Suite**: 109 comprehensive test cases ensuring reliability
 - **Complete Documentation**: Professional help docs with 40+ searchable tags
 
 ## Requirements
 
-- **Neovim 0.9.0+** (for modern health check API)
-- **[folke/snacks.nvim](https://github.com/folke/snacks.nvim)** (required dependency)
-- **[nvim-lua/plenary.nvim](https://github.com/nvim-lua/plenary.nvim)** (optional, required for testing)
+**Required**
+- **Neovim 0.10.0+** (floating window footers)
+- **[folke/snacks.nvim](https://github.com/folke/snacks.nvim)** (scratch file storage and windows)
+
+**Optional**
+- **[.NET 10+ SDK](https://dotnet.microsoft.com/download)**: running C# pads with `<CR>` (`dotnet run` on a single file, no project needed)
+- **[echasnovski/mini.icons](https://github.com/echasnovski/mini.icons)** or **[nvim-tree/nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons)**: colored file icons in the select list (built-in icons otherwise)
+- **A [Nerd Font](https://www.nerdfonts.com/)**: icons in the indicator, badges and select list (plain-text fallbacks otherwise; set `vim.g.have_nerd_font`)
+- **[enhance.nvim](https://github.com/csmhowitzer/enhance.nvim)** (or a custom provider): running DB pads against your database connections
+- **A statusline** such as [lualine.nvim](https://github.com/nvim-lualine/lualine.nvim): to show `status()` (see [Scratch pad indicator](#scratch-pad-indicator))
+- **[nvim-lua/plenary.nvim](https://github.com/nvim-lua/plenary.nvim)**: only for running the test suite
 
 ## 📦 Installation
 
@@ -69,18 +78,42 @@ require("scratch-manager").setup()
 ```lua
 require("scratch-manager").setup({
   width = nil,                    -- Auto-calculated: 1/3 screen width, max 100
-  height = nil,                   -- Auto-calculated: screen height - 3
-  border_color = "#F7DC6F",       -- Border highlight color
+  height = nil,                   -- Auto-calculated: editor height minus statusline/cmdline
+  border_color = "#F7DC6F",       -- Scratch window border color (same as highlights.scratch_border)
   dashboard_color = "#a6d189",    -- Dashboard highlight color
   default_filetype = "markdown",  -- Default filetype for new scratch buffers
-  border_highlight = "SnacksInputBorder", -- Highlight group for borders
   enable_keymaps = true,          -- Whether to set up default keymaps
+  wrap = true,                    -- Soft-wrap long lines in the scratch window
+  autosave = true,                -- Save pads after every change (never prompts to save)
   keymaps = {
     toggle = "==",                -- Toggle scratch buffer (markdown)
     toggle_lang = "=c",           -- Toggle scratch buffer (language-aware)
+    toggle_db = "=q",             -- Toggle DB (SQL) scratch buffer
     select = "=s",                -- Select from existing scratch buffers
     delete = "=d",                -- Delete current scratch buffer
-  }
+  },
+  indicator = {
+    enabled = true,               -- Track which buffers have scratch pads
+    icon = "",                    -- Notes (markdown) pad icon ("✎" without a Nerd Font)
+    code_icon = "",               -- Code pad icon ("<>" without a Nerd Font)
+    db_icon = "",                 -- DB pad icon ("DB" without a Nerd Font)
+    show_count = true,            -- Append the count when a buffer has several pads
+    notify = false,               -- Also notify once when entering a buffer with a pad
+    float = false,                -- Clickable notes/code badges in the top-right corner
+    animate = false,              -- Grow the pad out of the badge when clicked
+  },
+  run = {
+    cs = {
+      enabled = true,             -- <CR> in a C# pad runs it with `dotnet run`
+      cmd = { "dotnet", "run", "-p:PublishAot=false" }, -- .NET 10+ file-based apps
+      max_height = 15,            -- Max height of the output window
+    },
+    sql = {
+      enabled = true,             -- <CR> in a DB pad runs it through the provider
+      provider = "enhance",       -- built-in enhance.nvim adapter, a custom table, or false
+      close_pad = true,           -- close the pad on run so results get the full width
+    },
+  },
 })
 ```
 
@@ -117,8 +150,89 @@ vim.keymap.set("n", "<leader>sl", function() sm.toggle_scratch_pad("lua") end, {
 |-----|--------|-------------|
 | `==` | Toggle Scratch (Markdown) | Opens/focuses markdown scratch buffer |
 | `=c` | Toggle Scratch (Language-aware) | Opens scratch buffer with detected filetype |
+| `=q` | Toggle Scratch (DB) | Opens a SQL scratch buffer for this file |
 | `=s` | Select Scratch | Choose from existing scratch buffers |
-| `=d` | Delete Scratch | Permanently delete current scratch buffer |
+| `=d` | Delete Scratch | Delete the scratch pad (asks for confirmation; works from the pad or its source buffer) |
+
+### How pads are matched
+
+A pad belongs to a file by its name, Neovim's working directory (`:pwd`), the git
+branch, and the pad's filetype, the same key snacks.nvim uses for scratch files. So
+`==` (markdown) and `=c` (code) keep two separate pads for the same file, and pads
+created on one branch don't show up on another.
+
+### Scratch pad indicator
+
+Pads come in three kinds: **notes** (markdown, `==`, gold border), **code** (the file's
+language, `=c`, purple border) and **DB** (SQL, `=q`, green border). `status()` returns the
+icon of each kind the current buffer has (each with a count if there are several), or `""`. It only reads a cached buffer variable, so it is
+safe to call on every statusline redraw.
+
+```lua
+-- lualine
+require("lualine").setup({
+  sections = { lualine_x = { require("scratch-manager").status } },
+})
+
+-- plain statusline
+vim.o.statusline = "%f %{v:lua.require'scratch-manager'.status()} %=%l:%c"
+```
+
+Set `indicator.notify = true` for a one-time notification instead of (or as well as)
+the icon.
+
+Set `indicator.float = true` for small bordered badges in the top-right corner (below
+the tabline): the notes badge in the corner, then code, then DB to the left, each only when
+that kind of pad exists. Click one, or focus it and press `<CR>`, to open that pad (you're
+asked which one if there are several of that kind). They hide while you're inside a pad.
+Icon color: `highlights.badge`; borders: `highlights.scratch_border` / `highlights.code_border` /
+`highlights.db_border`. With `indicator.animate = true`
+an empty box grows from the badge to the pad's size (~150ms) before the pad opens.
+
+### Running code in a pad
+
+- **Lua**: snacks.nvim's own `<CR>` runs the pad (or the visual selection) and shows the
+  results inline.
+- **C#**: `<CR>` runs the pad (or the visual selection) with `dotnet run`, using .NET 10's
+  file-based apps, so no `.sln` or `.csproj` is needed. Output (stdout and stderr) appears in
+  a float at the bottom of the pad with the exit status and time; `q` closes it. The first
+  run builds and takes a few seconds; later runs of the same pad reuse the build cache.
+  Requires the .NET 10+ SDK on your `PATH`. Disable with `run = { cs = { enabled = false } }`.
+  The default command passes `-p:PublishAot=false`: file-based apps otherwise default to
+  native AOT, which disables reflection (e.g. `JsonSerializer.Serialize` throws).
+
+### DB pads (SQL)
+
+`=q` opens a SQL pad attached to the current file, handy for research queries next to
+the code that uses the data. `<CR>` runs the pad (or the visual selection): the first
+run asks which connection to use and remembers it for that pad; `<leader>dc` in the pad
+switches it. By default the pad closes on run so the results get the full width
+(`run.sql.close_pad = false` keeps it open).
+
+Running goes through a **provider**, so no database plugin is required. The built-in
+provider is a thin adapter for [enhance.nvim](https://github.com/csmhowitzer/enhance.nvim),
+loaded only when a DB pad is used; results appear in enhance's results window. With an
+enhance version that has its public API (`enhance.api`), DB pads also get **table and
+column completion** for their connection (SQL Server, via vim-dadbod-completion), from the
+first pick on and whenever the pad is reopened. Without a
+provider, DB pads are still regular SQL scratch pads. Use your own provider with:
+
+```lua
+run = {
+  sql = {
+    provider = {
+      name = "my-db",
+      available = function() return true end,
+      connections = function() return { { name = "local" } } end,
+      execute = function(connection, query, bufnr)
+        -- run `query` against `connection` and show the results
+      end,
+      -- optional: make the pad connection-aware, e.g. set up completion
+      attach = function(connection, bufnr) end,
+    },
+  },
+},
+```
 
 ### Commands
 
@@ -196,6 +310,12 @@ require("scratch-manager").open_new_scratch_pad(config)
 require("scratch-manager").open_scratch(config)
 require("scratch-manager").find_existing_scratch_pad(buffers, config)
 require("scratch-manager").delete_current_scratch_pad()
+require("scratch-manager").find_scratch_pads(buffers, config)
+
+-- Indicator
+require("scratch-manager").status()            -- statusline component
+require("scratch-manager").refresh_indicator() -- recompute for a buffer
+require("scratch-manager").open_pad()          -- open the current buffer's pad
 ```
 
 See `:help scratch-manager-functions` for complete API documentation.

@@ -163,15 +163,11 @@ local function create_content_window(config, layout, win_config)
 
 	-- Apply icon highlighting
 	local icon_ns_id = vim.api.nvim_create_namespace("scratch-manager-icons")
-	cached_icon_highlights = item_highlights -- Cache for fast re-application
 	for line_num, highlight_info in pairs(item_highlights) do
 		local hl_group, col_start, col_end = unpack(highlight_info)
 		vim.api.nvim_buf_add_highlight(selection_ui.content_buf, icon_ns_id, hl_group, line_num - 1, col_start, col_end)
 	end
 end
-
--- Store icon highlights for fast re-application
-local cached_icon_highlights = {}
 
 ---Update only the selection highlighting (fast)
 ---@private
@@ -189,13 +185,8 @@ local function update_selection_highlighting()
 		vim.api.nvim_buf_add_highlight(selection_ui.content_buf, ns_id, "Visual", line_idx, 0, -1)
 	end
 
-	-- Re-apply cached icon highlights AFTER Visual (v2.0 colored icons)
-	-- Use separate namespace for icons so they persist across selection updates
-	local icon_ns_id = vim.api.nvim_create_namespace("scratch-manager-icons")
-	for line_num, highlight_info in pairs(cached_icon_highlights) do
-		local hl_group, col_start, col_end = unpack(highlight_info)
-		vim.api.nvim_buf_add_highlight(selection_ui.content_buf, icon_ns_id, hl_group, line_num - 1, col_start, col_end)
-	end
+	-- Icon highlights live in their own namespace that is never cleared, so they persist
+	-- across selection updates without being re-applied (Visual only sets a background)
 
 	-- Set cursor position (shift down by 1 from original position with bounds checking)
 	if selection_ui.content_win and vim.api.nvim_win_is_valid(selection_ui.content_win) then
@@ -285,19 +276,7 @@ function M.create_custom_selection(items, opts, callback, config)
 	local constants = utils.get_layout_constants()
 	local height = math.min(base_height, math.floor(vim.o.lines * constants.SCREEN_HEIGHT_RATIO))
 
-	-- Build footer content following m_augment pattern with center alignment
 	local action_hints = "<CR> Select, <Esc> quit"
-	local file_count = string.format("%d files", #items)
-
-	-- Calculate center positioning for action hints
-	local available_width = width - #file_count - 4 -- Account for borders and file count
-	local hints_padding = math.max(0, math.floor((available_width - #action_hints) / 2))
-	local footer_content = "*"
-		.. string.rep(" ", hints_padding)
-		.. action_hints
-		.. string.rep(" ", available_width - hints_padding - #action_hints)
-		.. file_count
-		.. "*"
 
 	-- Base window configuration
 	local base_win_opts = {

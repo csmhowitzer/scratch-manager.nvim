@@ -45,7 +45,8 @@ function M.format_item_line(item, widths, is_selected, config)
 	-- Extract components
 	local filename = get_scratch_filename(item.name or "")
 	local cwd = item.cwd and vim.fn.fnamemodify(item.cwd, ":p:~") or ""
-	local branch = config.ui.show_git_branch and utils.get_git_branch(item.cwd) or nil
+	-- Branch the pad was created on (part of the snacks filekey), not the directory's current branch
+	local branch = config.ui.show_git_branch and (item.branch or "") or nil
 
 	-- Get icon with proper fallback handling
 	local icon, icon_hl = utils.get_display_icon(filename, item.ft, config.ui.show_icon)

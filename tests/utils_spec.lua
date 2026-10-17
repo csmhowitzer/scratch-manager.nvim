@@ -1,13 +1,11 @@
 -- Test suite for scratch-manager utils module
--- Tests formatting utilities and git branch caching
+-- Tests formatting utilities and git branch lookup
 
 describe("scratch-manager.utils", function()
   local utils
 
   before_each(function()
-    -- Clear any existing cache before each test
     utils = require("scratch-manager.utils")
-    utils.clear_git_cache()
   end)
 
   describe("format_columns", function()
@@ -96,88 +94,55 @@ describe("scratch-manager.utils", function()
   end)
 
   describe("get_git_branch", function()
-    it("should return empty string for nil directory", function()
-      local branch = utils.get_git_branch(nil)
-      assert.equals("", branch)
+    local tmp
+
+    -- Build a fake repository root whose .git/HEAD (or .git file) has the given content
+    local function fake_repo(head, as_worktree)
+      tmp = vim.fn.tempname()
+      vim.fn.mkdir(tmp, "p")
+      if as_worktree then
+        vim.fn.mkdir(tmp .. "/real-git-dir", "p")
+        vim.fn.writefile({ "gitdir: real-git-dir" }, tmp .. "/.git")
+        vim.fn.writefile({ head }, tmp .. "/real-git-dir/HEAD")
+      else
+        vim.fn.mkdir(tmp .. "/.git", "p")
+        vim.fn.writefile({ head }, tmp .. "/.git/HEAD")
+      end
+      return tmp
+    end
+
+    after_each(function()
+      if tmp then
+        vim.fn.delete(tmp, "rf")
+        tmp = nil
+      end
     end)
 
-    it("should cache git branch results", function()
-      -- Mock a directory that exists (use current working directory)
-      local test_dir = vim.fn.getcwd()
-      
-      -- First call
-      local branch1 = utils.get_git_branch(test_dir)
-      
-      -- Second call should use cache
-      local branch2 = utils.get_git_branch(test_dir)
-      
-      assert.equals(branch1, branch2)
-      
-      -- Verify cache contains the directory
-      local stats = utils.get_git_cache_stats()
-      assert.equals(1, stats.total_entries)
-      assert.truthy(vim.tbl_contains(stats.directories, test_dir))
+    it("should return empty string for nil directory", function()
+      assert.equals("", utils.get_git_branch(nil))
     end)
 
     it("should handle non-git directories gracefully", function()
-      -- Use a directory that definitely doesn't exist
-      local fake_dir = "/this/directory/does/not/exist"
-      
-      local branch = utils.get_git_branch(fake_dir)
-      assert.equals("", branch)
-      
-      -- Should still cache the empty result
-      local stats = utils.get_git_cache_stats()
-      assert.equals(1, stats.total_entries)
+      assert.equals("", utils.get_git_branch("/this/directory/does/not/exist"))
     end)
 
-    it("should cache different directories separately", function()
-      local dir1 = "/tmp"
-      local dir2 = "/var"
-      
-      utils.get_git_branch(dir1)
-      utils.get_git_branch(dir2)
-      
-      local stats = utils.get_git_cache_stats()
-      assert.equals(2, stats.total_entries)
-      assert.truthy(vim.tbl_contains(stats.directories, dir1))
-      assert.truthy(vim.tbl_contains(stats.directories, dir2))
-    end)
-  end)
-
-  describe("clear_git_cache", function()
-    it("should clear all cached git branches", function()
-      -- Add some entries to cache
-      utils.get_git_branch("/tmp")
-      utils.get_git_branch("/var")
-      
-      local stats_before = utils.get_git_cache_stats()
-      assert.equals(2, stats_before.total_entries)
-      
-      -- Clear cache
-      utils.clear_git_cache()
-      
-      local stats_after = utils.get_git_cache_stats()
-      assert.equals(0, stats_after.total_entries)
-      assert.same({}, stats_after.directories)
-    end)
-  end)
-
-  describe("get_git_cache_stats", function()
-    it("should return correct stats for empty cache", function()
-      local stats = utils.get_git_cache_stats()
-      assert.equals(0, stats.total_entries)
-      assert.same({}, stats.directories)
+    it("should read the branch from .git/HEAD", function()
+      assert.equals("feature/indicator", utils.get_git_branch(fake_repo("ref: refs/heads/feature/indicator")))
     end)
 
-    it("should return correct stats for populated cache", function()
-      utils.get_git_branch("/tmp")
-      utils.get_git_branch("/var")
-      utils.get_git_branch("/home")
+    it("should return empty string for a detached HEAD (matches git branch --show-current)", function()
+      assert.equals("", utils.get_git_branch(fake_repo("3acccec0e1eca4cece106c3b9356e27ed1ba9dba")))
+    end)
 
-      local stats = utils.get_git_cache_stats()
-      assert.equals(3, stats.total_entries)
-      assert.equals(3, #stats.directories)
+    it("should follow a gitdir file (worktrees/submodules)", function()
+      assert.equals("trunk", utils.get_git_branch(fake_repo("ref: refs/heads/trunk", true)))
+    end)
+
+    it("should reflect branch changes immediately (no stale cache)", function()
+      local dir = fake_repo("ref: refs/heads/main")
+      assert.equals("main", utils.get_git_branch(dir))
+      vim.fn.writefile({ "ref: refs/heads/trunk" }, dir .. "/.git/HEAD")
+      assert.equals("trunk", utils.get_git_branch(dir))
     end)
   end)
 

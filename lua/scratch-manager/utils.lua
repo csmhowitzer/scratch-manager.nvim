@@ -102,53 +102,31 @@ function M.format_columns(selector, icon, filename, branch, cwd, widths, config,
   return line, counter_highlight
 end
 
----Get git branch for directory with session-level caching
+---Get the current git branch for a directory, the same way snacks.nvim keys scratch files
+---
+---Like snacks, only a `.git` directly inside `cwd` counts, and a detached HEAD is "".
+---Reads `.git/HEAD` instead of spawning git, so it is cheap enough to call on BufEnter.
 ---@param cwd string|nil Working directory
 ---@return string branch Git branch name or empty string
 function M.get_git_branch(cwd)
   if not cwd then return "" end
 
-  -- Check cache first
-  local cached = git_branch_cache[cwd]
-  if cached then
-    return cached.branch
+  local git_path = cwd .. "/.git"
+  local stat = (vim.uv or vim.loop).fs_stat(git_path)
+  if not stat then return "" end
+
+  local git_dir = git_path
+  if stat.type == "file" then
+    -- Worktrees and submodules: ".git" is a file containing "gitdir: <path>"
+    local ok, lines = pcall(vim.fn.readfile, git_path, "", 1)
+    local gitdir = ok and lines[1] and lines[1]:match("^gitdir:%s*(.-)%s*$")
+    if not gitdir then return "" end
+    git_dir = gitdir:sub(1, 1) == "/" and gitdir or (cwd .. "/" .. gitdir)
   end
 
-  -- Execute git command
-  local handle = io.popen("cd " .. vim.fn.shellescape(cwd) .. " && git branch --show-current 2>/dev/null")
-  if not handle then
-    -- Cache empty result to avoid repeated failures
-    git_branch_cache[cwd] = { branch = "", timestamp = vim.loop.hrtime() }
-    return ""
-  end
-
-  local result = handle:read("*a")
-  handle:close()
-
-  local branch = result and vim.trim(result) or ""
-
-  -- Cache the result
-  git_branch_cache[cwd] = { branch = branch, timestamp = vim.loop.hrtime() }
-
-  return branch
-end
-
----Clear git branch cache (useful for testing or manual refresh)
-function M.clear_git_cache()
-  git_branch_cache = {}
-end
-
----Get git branch cache stats (for debugging/testing)
----@return table stats { total_entries: number, directories: string[] }
-function M.get_git_cache_stats()
-  local directories = {}
-  for dir, _ in pairs(git_branch_cache) do
-    table.insert(directories, dir)
-  end
-  return {
-    total_entries = #directories,
-    directories = directories
-  }
+  local ok, head = pcall(vim.fn.readfile, git_dir .. "/HEAD", "", 1)
+  if not ok or not head[1] then return "" end
+  return head[1]:match("^ref:%s*refs/heads/(.-)%s*$") or ""
 end
 
 ---Get layout constants for UI calculations
@@ -260,7 +238,7 @@ function M.analyze_content_lengths(items, config)
   -- Find the longest content in each column
   for _, item in ipairs(items) do
     local filename = get_scratch_filename(item.name or "")
-    local branch = config.ui.show_git_branch and M.get_git_branch(item.cwd) or ""
+    local branch = config.ui.show_git_branch and (item.branch or "") or ""
     local cwd = item.cwd and vim.fn.fnamemodify(item.cwd, ":p:~") or ""
 
     max_filename = math.max(max_filename, #filename)

@@ -32,7 +32,8 @@ Features:~
 • Session persistence - scratch buffers survive across Neovim restarts
 • Intuitive keymaps for quick access and workflow integration
 • Comprehensive health check integration for diagnostics and validation
-• Professional test suite with 16 comprehensive test cases
+• Statusline indicator for buffers that have a scratch pad
+• Professional test suite with 109 comprehensive test cases
 
 This plugin enhances the excellent snacks.nvim scratch functionality with
 additional features for power users who need reliable, persistent scratch
@@ -41,9 +42,19 @@ space integrated into their development workflow.
 ==============================================================================
 2. REQUIREMENTS                                     *scratch-manager-requirements*
 
-• Neovim 0.9.0+ (for modern health check API)
-• folke/snacks.nvim (required dependency)
-• nvim-lua/plenary.nvim (optional, required for testing)
+Required:~
+• Neovim 0.10.0+ (floating window footers)
+• folke/snacks.nvim (scratch file storage and windows)
+
+Optional:~
+• .NET 10+ SDK: run C# pads with <CR> (`dotnet run` on a single file)
+• echasnovski/mini.icons or nvim-tree/nvim-web-devicons: colored icons in
+  the select list (built-in icons otherwise)
+• A Nerd Font: icons in the indicator, badges and select list (plain-text
+  fallbacks otherwise; set |g:have_nerd_font|)
+• enhance.nvim (or a custom provider): run DB pads against connections
+• A statusline (for example lualine.nvim) to show |scratch-manager.status()|
+• nvim-lua/plenary.nvim: only for running the test suite
 
 ==============================================================================
 3. INSTALLATION                                     *scratch-manager-installation*
@@ -80,18 +91,42 @@ Default configuration:~
 >lua
   require("scratch-manager").setup({
     width = nil,                    -- Auto-calculated: 1/3 screen width, max 100
-    height = nil,                   -- Auto-calculated: screen height - 3
-    border_color = "#F7DC6F",       -- Border highlight color
+    height = nil,                   -- Auto-calculated: editor height
+    border_color = "#F7DC6F",       -- Scratch window border color
     dashboard_color = "#a6d189",    -- Dashboard highlight color
     default_filetype = "markdown",  -- Default filetype for new scratch buffers
-    border_highlight = "SnacksInputBorder", -- Highlight group for borders
     enable_keymaps = true,          -- Whether to set up default keymaps
+    wrap = true,                    -- Soft-wrap long lines in the scratch window
+    autosave = true,                -- Save pads after every change
     keymaps = {
       toggle = "==",                -- Toggle scratch buffer (markdown)
       toggle_lang = "=c",           -- Toggle scratch buffer (language-aware)
+      toggle_db = "=q",             -- Toggle DB (SQL) scratch buffer
       select = "=s",                -- Select from existing scratch buffers
       delete = "=d",                -- Delete current scratch buffer
-    }
+    },
+    indicator = {
+      enabled = true,               -- Track which buffers have scratch pads
+      icon = "",                    -- Notes pad icon ("✎" without a Nerd Font)
+      code_icon = "",               -- Code pad icon ("<>" without a Nerd Font)
+      db_icon = "",                 -- DB pad icon ("DB" without a Nerd Font)
+      show_count = true,            -- Append count when there are several pads
+      notify = false,               -- Notify once when entering such a buffer
+      float = false,                -- Clickable notes/code badges, top-right
+      animate = false,              -- Grow the pad out of the badge on click
+    },
+    run = {
+      cs = {
+        enabled = true,             -- <CR> in a C# pad runs `dotnet run`
+        cmd = { "dotnet", "run", "-p:PublishAot=false" },
+        max_height = 15,            -- Max height of the output window
+      },
+      sql = {
+        enabled = true,             -- <CR> in a DB pad runs it
+        provider = "enhance",       -- built-in adapter, custom table, or false
+        close_pad = true,           -- close the pad on run
+      },
+    },
   })
 <
 
@@ -104,12 +139,14 @@ width                   (number|nil)
 
 *scratch-manager-config-height*
 height                  (number|nil)
-    Window height for scratch buffers. If nil, auto-calculated as screen
-    height minus 3 lines.
+    Window height for scratch buffers. If nil, the window fills the editor
+    from the second row down to the statusline. A number is used as-is.
 
 *scratch-manager-config-border-color*
 border_color            (string)
-    Hex color code for scratch buffer borders. Default: "#F7DC6F"
+    Hex color code for scratch buffer borders. Shorthand for
+    `highlights.scratch_border`, which wins if both are set.
+    Default: "#F7DC6F"
 
 *scratch-manager-config-dashboard-color*
 dashboard_color         (string)
@@ -121,12 +158,85 @@ default_filetype        (string)
 
 *scratch-manager-config-border-highlight*
 border_highlight        (string)
-    Highlight group name for borders. Default: "SnacksInputBorder"
+    Deprecated and ignored. Earlier versions recolored this global group
+    every time a pad opened; use |scratch-manager-config-border-color|.
+
+*scratch-manager-config-wrap*
+wrap                    (boolean)
+    Soft-wrap long lines in the scratch window at word boundaries
+    ('wrap' and 'linebreak'), regardless of your global 'wrap'. The file
+    itself is not changed. Default: true
+
+*scratch-manager-config-autosave*
+autosave                (boolean)
+    Save pads after every change (leaving insert mode, normal-mode edits,
+    leaving the buffer), so closing, switching or quitting never asks to
+    save a pad. Writes skip autocommands, so format-on-save does not run
+    on scratch content. Default: true
 
 *scratch-manager-config-enable-keymaps*
 enable_keymaps          (boolean)
     Whether to set up default keymaps. Set to false to disable all default
     keymaps and define your own. Default: true
+
+*scratch-manager-config-indicator*
+indicator               (table)
+    Options for the scratch pad indicator (see |scratch-manager.status()|):
+    • enabled    (boolean) Track pads on BufEnter. Default: true
+    • icon       (string)  Notes (markdown) pad icon. Default: Nerd Font
+                           pencil, or "✎" without a Nerd Font
+    • code_icon  (string)  Code pad icon. Default: Nerd Font code icon, or
+                           "<>" without a Nerd Font
+    • db_icon    (string)  DB pad icon. Default: Nerd Font database icon,
+                           or "DB" without a Nerd Font
+    • show_count (boolean) Append the count when a buffer has several pads.
+                           Default: true
+    • notify     (boolean) Notify once per buffer when it has a pad.
+                           Default: false
+    • float      (boolean) Show small bordered badges in the top-right
+                           corner: notes in the corner, code to its left,
+                           each only when that kind of pad exists. Click
+                           one (or focus it and press <CR>) to open that
+                           pad. Default: false
+    • animate    (boolean) Grow an empty box from the badge to the pad's
+                           size (~150ms) before opening it. Only when the
+                           buffer has exactly one pad. Default: false
+
+*scratch-manager-config-run*
+run                     (table)
+    Runners for pads by filetype. Lua pads already run with snacks.nvim's
+    own <CR>. `run.cs`:
+    • enabled    (boolean)  Map <CR> (normal and visual) in C# pads to run
+                            the pad or selection. Default: true
+    • cmd        (string[]) Command; the source file is appended.
+                            Default: { "dotnet", "run",
+                            "-p:PublishAot=false" } (.NET 10+ file-based
+                            apps, no .sln/.csproj needed)
+    • max_height (number)   Max height of the output window. Default: 15
+    Output (stdout and stderr) appears in a float at the bottom of the pad
+    with the exit status and run time; `q` or <Esc> closes it. The first
+    run builds and takes a few seconds; later runs reuse the build cache.
+    The default passes `-p:PublishAot=false`: file-based apps otherwise
+    default to native AOT, which disables reflection (for example
+    JsonSerializer.Serialize throws).
+
+                                                    *scratch-manager-db-pads*
+    `run.sql` runs DB (SQL, `=q`) pads through a provider:
+    • enabled    (boolean) Map <CR> (normal and visual) and <leader>dc
+                           (choose connection) in DB pads. Default: true
+    • provider   (string|table|false) "enhance" (built-in adapter for
+                           enhance.nvim, loaded only on use), a custom
+                           provider table, or false. Default: "enhance"
+    • close_pad  (boolean) Close the pad on run so results get the full
+                           width. Default: true
+    The first run asks for a connection and remembers it per pad. A custom
+    provider is a table with `name`, `available()`, `connections()` (a list
+    of tables with a `name`), `execute(connection, query, bufnr)` and
+    optionally `attach(connection, bufnr)` (e.g. completion). With an
+    enhance.nvim that has `enhance.api`, DB pads get table/column completion
+    for their connection, from the first pick on and on every reopen.
+    No database plugin is required; without a provider, DB pads are plain
+    SQL scratch pads.
 
 *scratch-manager-config-keymaps*
 keymaps                 (table)
@@ -144,7 +254,21 @@ interact with scratch buffers:
    • Press `==` to toggle a markdown scratch buffer
    • Press `=c` to toggle a language-aware scratch buffer
    • Press `=s` to select from existing scratch buffers
-   • Press `=d` to delete the current scratch buffer
+   • Press `=d` to delete the scratch pad (asks for confirmation; works
+     from inside the pad or from its source buffer)
+
+                                                    *scratch-manager-matching*
+How pads are matched:~
+A pad belongs to a file by its name, Neovim's working directory (|:pwd|),
+the git branch, and the pad's filetype, the same key snacks.nvim uses for
+scratch files. `==` (markdown) and `=c` (code) therefore keep separate pads
+for the same file, and pads created on one branch are not shown on another.
+Toggling from inside a pad closes it.
+
+Pads come in three kinds: notes (markdown, `==`, gold border from
+`highlights.scratch_border`), code (the file's language, `=c`, purple border
+from `highlights.code_border`) and DB (SQL, `=q`, green border from
+`highlights.db_border`). The indicator and badges show each kind.
 
 2. Use the command:
    • `:ScratchPadDisplay` to toggle a scratch buffer
@@ -236,10 +360,43 @@ editing workflow while providing easy access to scratch space.
 
     Note: This is an internal function used by the toggle functionality.
 
-*scratch-manager.delete_current_scratch_pad()*
-    Delete the current scratch buffer file from disk.
+*scratch-manager.find_scratch_pads({buffers}, {config})*
+    Like |scratch-manager.find_existing_scratch_pad()|, but returns every
+    matching snacks item, most recently modified first.
 
-    Note: This permanently removes the scratch buffer file. Use with caution.
+*scratch-manager.delete_current_scratch_pad()*
+    Delete a scratch pad from disk. Inside a pad, deletes that pad. In a
+    source buffer, deletes its pad on the current branch, asking which one
+    if there are several. Always asks for confirmation, and wipes the pad's
+    buffer so it cannot be written back.
+
+*scratch-manager.status()*
+    Statusline component. Returns the notes icon and/or the code icon for
+    the pads the current buffer has (each with a count if there are
+    several), otherwise "".
+    Only reads the cached `b:scratch_manager_pads`, so it is cheap to call
+    on every redraw.
+
+    Example:~
+>lua
+        -- lualine
+        require("lualine").setup({
+          sections = { lualine_x = { require("scratch-manager").status } },
+        })
+
+        -- plain statusline
+        vim.o.statusline = "%f %{v:lua.require'scratch-manager'.status()}"
+<
+
+*scratch-manager.refresh_indicator({bufnr})*
+    Recompute `b:scratch_manager_pads` for {bufnr} (default: current
+    buffer). Runs automatically on |BufEnter|, |DirChanged|, |TabEnter|,
+    |WinClosed| and when a pad is written.
+
+*scratch-manager.open_pad({kind})*
+    Open the current buffer's existing scratch pad. {kind} ("notes" or
+    "code", optional) limits it to that kind. Asks which one if there are
+    several; notifies if there is none. Used by the floating badges.
 
 ==============================================================================
 8. KEYMAPS                                               *scratch-manager-keymaps*
@@ -249,6 +406,7 @@ Default keymaps (when enable_keymaps = true):~
 Command                 Default Key     Description~
 toggle                  ==              Toggle scratch buffer (markdown)
 toggle_lang             =c              Toggle scratch buffer (language-aware)
+toggle_db               =q              Toggle DB (SQL) scratch buffer
 select                  =s              Select from existing scratch buffers
 delete                  =d              Delete current scratch buffer
 
@@ -295,7 +453,7 @@ Run the health check:~
 <
 
 The health check validates:~
-• Neovim version compatibility (requires 0.9.0+)
+• Neovim version compatibility (requires 0.10.0+)
 • Required dependencies (snacks.nvim)
 • Optional dependencies (plenary.nvim for testing)
 • Plugin configuration and setup status

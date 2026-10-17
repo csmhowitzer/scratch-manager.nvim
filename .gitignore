@@ -1,0 +1,25 @@
+# Test output logs (and Neovim logs from headless runs)
+*.log
+.nvimlog
+
+# Ad-hoc test/demo scripts (real tests live in tests/)
+test_*.lua
+demo_*.lua
+testft/
+
+# Development notes live in the parent plugins repo (scratch-manager-dev-notes/)
+*-dev-notes/
+*-planning.md
+*-notes.md
+
+# Neovim swap files
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Augment configuration
+.augment/
