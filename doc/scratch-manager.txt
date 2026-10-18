@@ -195,8 +195,12 @@ lsp                     (table)
                         pads through a clean mirror file (e.g.
                         `StringExtensionsPad.cs`): completion, diagnostics,
                         hover, including the project's types. C# pads get a
-                        visible `#:project` line for that; `.Dump()` calls
-                        aren't flagged. Default: true
+                        visible `#:project` line for that (its path is
+                        shortened on screen except on the cursor line;
+                        `#:` lines show in the comment color and are
+                        skipped by Treesitter, which can't parse them);
+                        `.Dump()` calls and unused usings aren't flagged.
+                        Default: true
     Pad buffers have `b:scratch_manager_pad` set, so other config (format on
     save, LSP crash handlers) can skip them.
 

@@ -184,8 +184,12 @@ with two exceptions:
 - **Servers a language supports** (C#: Roslyn) run in pads through a clean mirror file: the pad
   is shown to the server as e.g. `StringExtensionsPad.cs`, so you get completion, errors as you
   type, hover and go-to-definition, including your project's types. For that, C# pads get a
-  visible `#:project …` line for the source file's project (added for you). `.Dump()` calls
-  aren't flagged, since the helper only exists when the pad runs. `lsp.mirror = false` turns this off.
+  visible `#:project …` line for the source file's project (added for you; on screen the path is
+  shortened to `…/Project.csproj` except on the cursor line). `#:` lines are shown in your comment
+  color and skipped by Treesitter, whose C# grammar doesn't know them yet (otherwise the parse
+  error can break the highlighting of the code below). `.Dump()` calls aren't flagged, since
+  the helper only exists when the pad runs, and neither are unused `using` lines (`=p` brings all of
+  a file's usings on purpose). `lsp.mirror = false` turns this off.
 - **`lsp.allow`** lists other servers to keep (`lua_ls` by default, for Lua pads).
 
 Set `lsp.detach = false` to leave every server attached as-is. Pad buffers carry

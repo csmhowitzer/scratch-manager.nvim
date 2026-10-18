@@ -277,10 +277,112 @@ M.lsp = {
 	-- .Dump() only exists at run time (the helper is added to the compiled copy). Match on the
 	-- flagged text, not the message: a project with its own Dump extension yields different errors
 	-- (e.g. CS0411 for DictionaryExtensions.Dump<TKey, TValue>)
+	-- IDE0005 / CS8019 "unnecessary using": `=p` brings all of the file's using lines so pasted code
+	-- compiles, so unused ones are expected (and the "unnecessary" highlight recolors them).
 	ignore_diagnostic = function(d, text)
+		if d.code == "IDE0005" or d.code == "CS8019" then
+			return true
+		end
 		return text == "Dump" or (d.message or ""):find("'Dump'", 1, true) ~= nil
 	end,
 }
+
+-- Pad windows conceal the long #:project path (revealed on the cursor line)
+M.wo = { conceallevel = 2, concealcursor = "" }
+
+local decorate_ns = vim.api.nvim_create_namespace("scratch-manager-cs-project")
+
+---Show `#:` / `#!` directive lines in the comment color (they're settings, not code; above
+---Roslyn's semantic colors), and shorten `#:project /long/path/To/Project.csproj` to
+---`#:project …/Project.csproj` (conceal; the text dotnet and Roslyn read keeps the full path)
+---@param bufnr number
+function M.decorate(bufnr)
+	if not vim.api.nvim_buf_is_valid(bufnr) then
+		return
+	end
+	vim.api.nvim_buf_clear_namespace(bufnr, decorate_ns, 0, -1)
+	for lnum, line in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
+		if line:match("^%s*#[:!]") then
+			pcall(vim.api.nvim_buf_set_extmark, bufnr, decorate_ns, lnum - 1, 0, {
+				end_col = #line, hl_group = "Comment", priority = 200,
+			})
+		end
+		local dir_start, dir_end = line:find("^%s*#:project%s+(.*)/")
+		if dir_start then
+			local path_start = line:find("%S", line:find("#:project", 1, true) + #"#:project")
+			pcall(vim.api.nvim_buf_set_extmark, bufnr, decorate_ns, lnum - 1, path_start - 1, {
+				end_col = dir_end, conceal = "…",
+			})
+		end
+	end
+end
+
+---Ranges Treesitter should parse: everything except `#:` / `#!` directive lines. The C# grammar
+---doesn't know `#:` (single-file app directives are new), and the parse error it produces can
+---spread over the following code and break its highlighting.
+---@param lines string[]
+---@return integer[][] ranges Range4 list ({ start_row, start_col, end_row, end_col })
+function M.parse_ranges(lines)
+	local ranges, start = {}, nil
+	for i, line in ipairs(lines) do
+		local directive = line:match("^%s*#[:!]") ~= nil
+		if not directive and not start then
+			start = i
+		elseif directive and start then
+			table.insert(ranges, { start - 1, 0, i - 2, #lines[i - 1] })
+			start = nil
+		end
+	end
+	if start then
+		table.insert(ranges, { start - 1, 0, #lines - 1, #lines[#lines] })
+	end
+	return ranges
+end
+
+---Keep Treesitter away from the pad's `#:` lines (only touches the parser when they change)
+---@param bufnr number
+function M.update_parse_ranges(bufnr)
+	if not vim.api.nvim_buf_is_valid(bufnr) then
+		return
+	end
+	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+	local has_directive = false
+	for _, line in ipairs(lines) do
+		if line:match("^%s*#[:!]") then
+			has_directive = true
+			break
+		end
+	end
+	local ranges = has_directive and M.parse_ranges(lines) or nil
+	local key = ranges and vim.inspect(ranges) or ""
+	if vim.b[bufnr].scratch_manager_parse_ranges == key then
+		return
+	end
+	local ok, parser = pcall(vim.treesitter.get_parser, bufnr, M.treesitter)
+	if not ok or not parser then
+		return
+	end
+	if not ranges and vim.b[bufnr].scratch_manager_parse_ranges == nil then
+		return -- never restricted, nothing to undo
+	end
+	vim.b[bufnr].scratch_manager_parse_ranges = key
+	-- no directives (anymore): parse the whole buffer again
+	parser:set_included_regions({ ranges and #ranges > 0 and ranges or { { 0, 0, #lines, 0 } } })
+	parser:parse(true)
+end
+
+---@param bufnr number
+function M.on_open(bufnr)
+	M.decorate(bufnr)
+	M.update_parse_ranges(bufnr)
+	vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "InsertLeave" }, {
+		buffer = bufnr,
+		callback = function()
+			M.update_parse_ranges(bufnr)
+			M.decorate(bufnr)
+		end,
+	})
+end
 
 ---Give the pad a visible #:project line for the source file's project, so Roslyn offers the
 ---project's types (it reads the pad's text, not the run-time copy). Idempotent.
@@ -297,7 +399,22 @@ function M.prepare_pad(bufnr, config)
 	local project = M.find_project(bufnr)
 	if project then
 		vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, { "#:project " .. project })
+		M.decorate(bufnr)
+		M.update_parse_ranges(bufnr)
 	end
+end
+
+---Project file named by the pad's own #:project line
+---@param lines string[]
+---@return string|nil
+local function directive_project(lines)
+	for _, line in ipairs(lines) do
+		local path = line:match("^%s*#:project%s+(.-)%s*$")
+		if path then
+			return path
+		end
+	end
+	return nil
 end
 
 ---@type ScratchManagerRunSpec
@@ -317,7 +434,9 @@ M.run = {
 		local project = config.project ~= false and not has_project_directive(ctx.pad_lines) and M.find_project(ctx.bufnr)
 			or nil
 		local compiled, usings = M.compose(ctx.pad_lines, ctx.range, project, { inline = config.inline })
-		local label = project and vim.fn.fnamemodify(project, ":t") or nil
+		-- Name the project in the output, whether added here or by the pad's own #:project line
+		local named = project or directive_project(ctx.pad_lines)
+		local label = named and vim.fn.fnamemodify(named, ":t") or nil
 		local details = {}
 		if label then
 			table.insert(details, label)
@@ -385,7 +504,7 @@ function M.help(info, h)
 		},
 		{ h = "Completion and errors" },
 		{
-			p = "Roslyn runs in this pad (through a clean copy of the file, since pad file names confuse it): completion, errors as you type, hover and go-to-definition, including your project's types. That's why the first line references your project (`#:project …`); it's added for you. `.Dump()` calls aren't flagged, since the helper only exists when the pad runs. Turn this off with `lsp = { mirror = false }`.",
+			p = "Roslyn runs in this pad (through a clean copy of the file, since pad file names confuse it): completion, errors as you type, hover and go-to-definition, including your project's types. That's why the first line references your project (`#:project …`, shortened on screen except on the cursor line, in the comment color); it's added for you. `.Dump()` calls aren't flagged, since the helper only exists when the pad runs, and neither are unused `using` lines (`=p` brings all of a file's usings on purpose). Turn this off with `lsp = { mirror = false }`.",
 		},
 		{ h = "Sending code here" },
 		{

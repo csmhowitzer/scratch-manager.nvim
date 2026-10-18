@@ -23,6 +23,7 @@
 ---                                      ignore_diagnostic(d, text) hides expected diagnostics; text is
 ---                                      the flagged source text (C#: hide errors on .Dump())
 ---  prepare_pad(bufnr, config)          adjust a pad for its servers (C#: add the #:project line)
+---  wo                                  window options for the pad (C#: conceal for the #:project path)
 ---Help and health
 ---  help(info, helpers) -> blocks       `=h` content (see help.lua for blocks and helpers)
 ---  help_info(bufnr, config) -> table   pad details merged into the help info (C#: project)
@@ -58,6 +59,7 @@ local M = {}
 ---@field on_open? fun(bufnr: number, config: table)
 ---@field lsp? { servers: string[], ext?: string, ignore_diagnostic?: fun(d: table, text: string): boolean }
 ---@field prepare_pad? fun(bufnr: number, config: table)
+---@field wo? table<string, any>
 ---@field help? fun(info: table, helpers: table): table[]
 ---@field help_info? fun(bufnr: number, config: table): table
 ---@field health? fun(report: table, config: table)

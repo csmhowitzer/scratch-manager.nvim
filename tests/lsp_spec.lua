@@ -193,6 +193,61 @@ describe("scratch-manager.lsp (servers in pads)", function()
     assert.equals(1, #vim.diagnostic.get(pad))
   end)
 
+  it("hides 'unnecessary using' in pads (=p brings all of a file's usings)", function()
+    local pad = pad_buf("cs", "G.cs")
+    local id = fake_server("roslyn", pad)
+    vim.api.nvim_buf_set_lines(pad, 0, -1, false, { "using System.Text;", "using System.Globalization;", "var a = 1;" })
+    local client = vim.lsp.get_client_by_id(id)
+    client.handlers["textDocument/publishDiagnostics"](nil, {
+      uri = vim.uri_from_fname(pad_lsp.mirror(pad)),
+      diagnostics = {
+        { range = { start = { line = 0, character = 0 }, ["end"] = { line = 1, character = 27 } }, severity = 4, code = "IDE0005",
+          message = "Using directive is unnecessary.", tags = { 1 } },
+        { range = { start = { line = 2, character = 4 }, ["end"] = { line = 2, character = 5 } }, severity = 2, code = "CS0219",
+          message = "The variable 'a' is assigned but its value is never used" },
+      },
+    }, { client_id = id, method = "textDocument/publishDiagnostics" }, {})
+    assert.same({ "CS0219" }, vim.tbl_map(function(d) return d.code end, vim.diagnostic.get(pad)))
+  end)
+
+  it("shortens the #:project path on screen, keeping the full path in the text", function()
+    local cs = require("scratch-manager.languages").get("cs")
+    local buf = vim.api.nvim_create_buf(false, true)
+    local line = "#:project /mnt/c/projects/App Connections/Core/AccuLynx.Core.csproj"
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { line, "var a = 1;" })
+    cs.decorate(buf)
+    local marks = vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })
+    local conceal = vim.tbl_filter(function(m) return m[4].conceal end, marks)[1]
+    assert.equals("…", conceal[4].conceal)
+    assert.equals("/mnt/c/projects/App Connections/Core/", line:sub(conceal[3] + 1, conceal[4].end_col))
+    -- the whole directive line is shown as a comment, above semantic token colors (125)
+    local comment = vim.tbl_filter(function(m) return m[4].hl_group == "Comment" end, marks)
+    assert.equals(1, #comment)
+    assert.equals(0, comment[1][2])
+    assert.equals(#line, comment[1][4].end_col)
+    assert.is_true(comment[1][4].priority > 125)
+    assert.equals(line, vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1])
+    assert.same({ conceallevel = 2, concealcursor = "" }, cs.wo)
+  end)
+
+  it("keeps Treesitter off #: lines so a parse error can't spread into the code", function()
+    local cs = require("scratch-manager.languages").get("cs")
+    assert.same({ { 1, 0, 2, 10 }, { 4, 0, 4, 3 } },
+      cs.parse_ranges({ "#:project /x/A.csproj", "using X;", "var a = 1;", "#:package B@1", "x()" }))
+    if not pcall(vim.treesitter.language.add, "c_sharp") then
+      pending("c_sharp parser not installed")
+      return
+    end
+    local buf = vim.api.nvim_create_buf(false, true)
+    -- this exact text breaks the C# grammar from line 1 into the local function
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "#:project /mnt/c/x/App Connections/Core.csproj", "",
+      "// from A.cs:1", "string ToPhone(string input)", "{", "    if (string.IsNullOrEmpty(input))", "        return input;",
+      "    var p = new string(input.Where(c => char.IsDigit(c)).ToArray());", "    return p;", "}" })
+    cs.update_parse_ranges(buf)
+    local root = vim.treesitter.get_parser(buf, "c_sharp"):parse(true)[1]:root()
+    assert.is_false(root:has_error())
+  end)
+
   it("keeps the mirror file in sync when the pad saves", function()
     local pad = pad_buf("cs", "D.cs")
     fake_server("roslyn", pad)

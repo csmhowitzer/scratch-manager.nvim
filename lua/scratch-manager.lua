@@ -355,17 +355,22 @@ function get_window_options(width, height, ft)
 	local col
 	width, col = sized(width)
 
+	local wo = {
+		winhighlight = "FloatBorder:" .. border_hl(pad_kind(ft)) .. ",FloatTitle:ScratchManagerTitle,",
+		-- Set explicitly: otherwise the window inherits the global 'wrap' (often off)
+		wrap = wraps(pad_kind(ft)),
+		linebreak = wraps(pad_kind(ft)),
+	}
+	if ft then
+		wo = vim.tbl_extend("force", wo, languages.get(ft).wo or {})
+	end
+
 	return {
 		row = 1,
 		col = col,
 		width = width,
 		height = height,
-		wo = {
-			winhighlight = "FloatBorder:" .. border_hl(pad_kind(ft)) .. ",FloatTitle:ScratchManagerTitle,",
-			-- Set explicitly: otherwise the window inherits the global 'wrap' (often off)
-			wrap = wraps(pad_kind(ft)),
-			linebreak = wraps(pad_kind(ft)),
-		},
+		wo = wo,
 		keys = pad_keys(ft),
 	}
 end
