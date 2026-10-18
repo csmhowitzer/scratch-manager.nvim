@@ -968,6 +968,7 @@ local function block_lsp(bufnr, client_id)
 	-- doesn't matter which plugin's FileType autocmd ran first)
 	if client and lsp_mirror and mirror_pad(bufnr) and pad_lsp.allows(bufnr, client.name) then
 		pad_lsp.watch_client(client)
+		pad_lsp.refresh_diagnostics(bufnr, client.id)
 		return false
 	end
 	return true

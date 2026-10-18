@@ -236,6 +236,25 @@ function M.watch_client(client)
 	wrap("textDocument/diagnostic", true)
 end
 
+-- Seconds after a server attaches to re-ask for a pad's diagnostics
+M.refresh_delays = { 5, 15, 30, 60, 120, 240 }
+
+---Re-ask a server for a pad's diagnostics a few times after it attaches. A pad is a single-file
+---project the server loads on its own, after the solution (Roslyn: a cold load with a restore can
+---take minutes); its first diagnostics come from before that and would stay until the next edit
+---(e.g. a `using` from a project reference flagged CS0234). Servers only refresh at solution load.
+---@param bufnr number
+---@param client_id number
+function M.refresh_diagnostics(bufnr, client_id)
+	for _, seconds in ipairs(M.refresh_delays) do
+		vim.defer_fn(function()
+			if vim.api.nvim_buf_is_valid(bufnr) and registry().pads[bufnr] and vim.lsp.buf_is_attached(bufnr, client_id) then
+				pcall(vim.lsp.util._refresh, "textDocument/diagnostic", { bufnr = bufnr, client_id = client_id })
+			end
+		end, seconds * 1000)
+	end
+end
+
 -- Expose state for testing
 M._registry = registry
 

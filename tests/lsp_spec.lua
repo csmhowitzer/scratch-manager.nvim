@@ -193,6 +193,38 @@ describe("scratch-manager.lsp (servers in pads)", function()
     assert.equals(1, #vim.diagnostic.get(pad))
   end)
 
+  it("asks again for a pad's diagnostics after attaching (its project loads after the solution)", function()
+    local delays = pad_lsp.refresh_delays
+    pad_lsp.refresh_delays = { 0.05, 0.1 }
+    local pad = pad_buf("cs", "R.cs")
+    local pulls = {}
+    local id = vim.lsp.start({
+      name = "roslyn",
+      cmd = function()
+        return {
+          request = function(method, params, callback)
+            if method == "textDocument/diagnostic" then
+              table.insert(pulls, params.textDocument.uri)
+              callback(nil, { kind = "full", items = {} })
+            else
+              callback(nil, method == "initialize" and { capabilities = { textDocumentSync = 1, diagnosticProvider = {} } } or nil)
+            end
+            return true, 1
+          end,
+          notify = function() return true end,
+          is_closing = function() return false end,
+          terminate = function() end,
+        }
+      end,
+      root_dir = tmp,
+    }, { bufnr = pad })
+    pad_lsp.refresh_delays = delays
+    vim.wait(1000, function() return #pulls >= 2 end)
+    assert.is_true(#pulls >= 2)
+    assert.equals(vim.uri_from_fname(pad_lsp.mirror(pad)), pulls[#pulls])
+    assert.is_truthy(id)
+  end)
+
   it("hides 'unnecessary using' in pads (=p brings all of a file's usings)", function()
     local pad = pad_buf("cs", "G.cs")
     local id = fake_server("roslyn", pad)
