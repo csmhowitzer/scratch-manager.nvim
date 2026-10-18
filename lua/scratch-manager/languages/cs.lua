@@ -339,6 +339,9 @@ function M.parse_ranges(lines)
 	return ranges
 end
 
+-- bufnr -> { parser, key } of the included regions last applied
+local parse_ranges_applied = {}
+
 ---Keep Treesitter away from the pad's `#:` lines (only touches the parser when they change)
 ---@param bufnr number
 function M.update_parse_ranges(bufnr)
@@ -355,17 +358,19 @@ function M.update_parse_ranges(bufnr)
 	end
 	local ranges = has_directive and M.parse_ranges(lines) or nil
 	local key = ranges and vim.inspect(ranges) or ""
-	if vim.b[bufnr].scratch_manager_parse_ranges == key then
-		return
-	end
 	local ok, parser = pcall(vim.treesitter.get_parser, bufnr, M.treesitter)
 	if not ok or not parser then
 		return
 	end
-	if not ranges and vim.b[bufnr].scratch_manager_parse_ranges == nil then
+	-- Per parser: `:edit` (or restarting Treesitter) makes a new one that parses everything again
+	local applied = parse_ranges_applied[bufnr]
+	if applied and applied.parser == parser and applied.key == key then
+		return
+	end
+	if not ranges and not (applied and applied.parser == parser) then
 		return -- never restricted, nothing to undo
 	end
-	vim.b[bufnr].scratch_manager_parse_ranges = key
+	parse_ranges_applied[bufnr] = { parser = parser, key = key }
 	-- no directives (anymore): parse the whole buffer again
 	parser:set_included_regions({ ranges and #ranges > 0 and ranges or { { 0, 0, #lines, 0 } } })
 	parser:parse(true)
@@ -380,6 +385,16 @@ function M.on_open(bufnr)
 		callback = function()
 			M.update_parse_ranges(bufnr)
 			M.decorate(bufnr)
+		end,
+	})
+	-- `:edit` reloads the text (dropping the decorations) and Treesitter starts a new parser
+	vim.api.nvim_create_autocmd("BufReadPost", {
+		buffer = bufnr,
+		callback = function()
+			vim.schedule(function()
+				M.update_parse_ranges(bufnr)
+				M.decorate(bufnr)
+			end)
 		end,
 	})
 end

@@ -87,14 +87,39 @@ function M.enable(bufnr, name)
 	reg.pads[bufnr] = mirror
 	reg.by_path[mirror] = bufnr
 	M.sync(bufnr)
-	vim.api.nvim_create_autocmd({ "BufWipeout", "BufDelete" }, {
+	-- Only when the buffer is really gone: BufDelete also fires when a buffer is unlisted (snacks
+	-- unlists pads), and the pad stays attached. Scheduled, so the didClose Neovim sends while
+	-- wiping still names the mirror; Roslyn crashes on a close (or change) for a file it never saw.
+	vim.api.nvim_create_autocmd("BufWipeout", {
 		buffer = bufnr,
 		once = true,
 		callback = function()
-			M.disable(bufnr)
+			vim.schedule(function()
+				M.disable(bufnr)
+			end)
 		end,
 	})
 	return true
+end
+
+---Re-send a pad to its servers (didClose + didOpen under the mirror path), e.g. after a server
+---lost track of it. Unlike `:edit`, the buffer, its highlights and its state stay as they are.
+---@param bufnr number
+---@return number resynced Number of clients re-attached
+function M.resync(bufnr)
+	if not registry().pads[bufnr] then
+		return 0
+	end
+	M.sync(bufnr)
+	local count = 0
+	for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
+		if M.allows(bufnr, client.name) then
+			vim.lsp.buf_detach_client(bufnr, client.id)
+			vim.lsp.buf_attach_client(bufnr, client.id)
+			count = count + 1
+		end
+	end
+	return count
 end
 
 ---Stop mirroring a pad
@@ -104,7 +129,10 @@ function M.disable(bufnr)
 	local mirror = reg.pads[bufnr]
 	if mirror then
 		reg.pads[bufnr] = nil
-		reg.by_path[mirror] = nil
+		-- a reopened pad (new buffer, same file) may already own the mirror path
+		if reg.by_path[mirror] == bufnr then
+			reg.by_path[mirror] = nil
+		end
 	end
 end
 

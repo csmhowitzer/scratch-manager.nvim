@@ -280,6 +280,69 @@ describe("scratch-manager.lsp (servers in pads)", function()
     assert.is_false(root:has_error())
   end)
 
+  it("keeps the mirror when snacks unlists the pad (BufDelete), so later changes don't go out under the raw name", function()
+    local pad = pad_buf("cs", "U.cs")
+    local _, received = fake_server("roslyn", pad)
+    local mirror_uri = vim.uri_from_fname(pad_lsp.mirror(pad))
+    vim.bo[pad].buflisted = false -- fires BufDelete; the buffer lives on, still attached
+    assert.truthy(pad_lsp.mirror(pad))
+    vim.api.nvim_buf_set_lines(pad, 0, -1, false, { "var a = 1;", "" })
+    vim.wait(500, function()
+      return vim.tbl_contains(vim.tbl_map(function(n) return n.method end, received), "textDocument/didChange")
+    end)
+    for _, n in ipairs(received) do
+      if n.uri then
+        assert.equals(mirror_uri, n.uri)
+      end
+    end
+  end)
+
+  it("closes a wiped pad under the mirror name, then forgets it", function()
+    local pad = pad_buf("cs", "W.cs")
+    local _, received = fake_server("roslyn", pad)
+    local mirror_uri = vim.uri_from_fname(pad_lsp.mirror(pad))
+    vim.cmd("bwipeout! " .. pad)
+    vim.wait(500, function() return pad_lsp.mirror(pad) == nil end)
+    assert.is_nil(pad_lsp.mirror(pad))
+    local closes = vim.tbl_filter(function(n) return n.method == "textDocument/didClose" end, received)
+    assert.equals(1, #closes)
+    assert.equals(mirror_uri, closes[1].uri)
+  end)
+
+  it("keeps the mirror of a reopened pad when the old buffer's cleanup runs late", function()
+    local old = pad_buf("cs", "O.cs")
+    fake_server("roslyn", old)
+    local mirror = pad_lsp.mirror(old)
+    local file = vim.api.nvim_buf_get_name(old)
+    vim.cmd("bwipeout! " .. old) -- cleanup is scheduled
+    vim.cmd.edit(vim.fn.fnameescape(file))
+    vim.bo.filetype = "cs"
+    local new = vim.api.nvim_get_current_buf()
+    fake_server("roslyn", new)
+    assert.equals(mirror, pad_lsp.mirror(new))
+    vim.wait(100)
+    assert.equals(new, vim.uri_to_bufnr(vim.uri_from_fname(mirror)))
+  end)
+
+  it("resyncs a pad by re-opening it under the mirror name (no :edit)", function()
+    local pad = pad_buf("cs", "S.cs")
+    local id, received = fake_server("roslyn", pad)
+    local mirror_uri = vim.uri_from_fname(pad_lsp.mirror(pad))
+    local before = #received
+    assert.equals(1, pad_lsp.resync(pad))
+    assert.is_true(vim.lsp.buf_is_attached(pad, id))
+    local methods = {}
+    for i = before + 1, #received do
+      table.insert(methods, received[i].method)
+      if received[i].uri then
+        assert.equals(mirror_uri, received[i].uri)
+      end
+    end
+    assert.is_true(vim.tbl_contains(methods, "textDocument/didClose"))
+    assert.is_true(vim.tbl_contains(methods, "textDocument/didOpen"))
+    assert.equals(0, pad_lsp.resync(vim.api.nvim_create_buf(false, true))) -- not a pad
+  end)
+
   it("keeps the mirror file in sync when the pad saves", function()
     local pad = pad_buf("cs", "D.cs")
     fake_server("roslyn", pad)
