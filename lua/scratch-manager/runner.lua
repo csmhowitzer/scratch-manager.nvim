@@ -149,12 +149,24 @@ function M.show_dump_detail(bufnr)
 	vim.wo[detail.win].winhighlight = "NormalFloat:Normal,FloatBorder:ScratchManagerCodeBorder,FloatTitle:ScratchManagerTitle"
 end
 
+---Map `K` on a pad to the value popup (buffer-local). Language servers attaching to the pad (e.g.
+---LazyVim's hover mapping) take `K` over; the popup falls back to hover on lines without values.
+---@param bufnr number Pad buffer
+function M.map_value_key(bufnr)
+	if vim.api.nvim_buf_is_valid(bufnr) then
+		vim.keymap.set("n", "K", function()
+			M.show_dump_detail(bufnr)
+		end, { buffer = bufnr, silent = true, desc = "Value (or hover)" })
+	end
+end
+
 ---Show `.Dump()` values at the end of the pad lines that produced them
 ---@param bufnr number Pad buffer
 ---@param dumps table<number, string[]> Pad line -> values (in order)
 function M.show_inline(bufnr, dumps)
 	M.clear_inline(bufnr)
 	dump_values[bufnr] = dumps
+	M.map_value_key(bufnr)
 	local count = vim.api.nvim_buf_line_count(bufnr)
 	for lnum, values in pairs(dumps) do
 		if lnum >= 1 and lnum <= count then
@@ -449,7 +461,7 @@ function M.run(bufnr, ft, config)
 			local ms = math.floor((vim.uv.hrtime() - started) / 1e6)
 			local status = result.code == 0 and "✓ ok" or ("✗ exit " .. result.code)
 			if #lines == 0 and dumped > 0 then
-				lines = { ("%d value%s shown inline (→, K for the full value)"):format(dumped, dumped == 1 and "" or "s") }
+				lines = { ("%d value%s shown inline (K on its line for the full value)"):format(dumped, dumped == 1 and "" or "s") }
 			end
 			if hidden > 0 then
 				table.insert(details, ("%d warning%s hidden"):format(hidden, hidden == 1 and "" or "s"))

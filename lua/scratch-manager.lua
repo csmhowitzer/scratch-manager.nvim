@@ -1037,6 +1037,22 @@ local function setup_autosave()
 		})
 	end
 
+	-- Servers allowed on pads map their own `K` (hover) when they attach; keep the pad's value key,
+	-- which falls back to hover
+	vim.api.nvim_create_autocmd("LspAttach", {
+		group = group,
+		callback = function(args)
+			local ft = vim.bo[args.buf].filetype
+			local lang = languages.get(ft)
+			local run = (get_config().run or {})[ft] or {}
+			if is_pad_buffer(args.buf) and lang.run and lang.run.inline and run.enabled ~= false and run.inline ~= false then
+				vim.schedule(function()
+					runner.map_value_key(args.buf)
+				end)
+			end
+		end,
+	})
+
 	-- Language on_open hooks (DB pads: attach the connection). snacks sets the pad's filetype
 	-- after BufEnter, so also catch pads on FileType
 	vim.api.nvim_create_autocmd("FileType", {
