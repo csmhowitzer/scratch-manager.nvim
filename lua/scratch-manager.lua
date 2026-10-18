@@ -38,8 +38,8 @@ local store = require("scratch-manager.store")
 ---@field show_git_branch boolean Whether to show git branch column (default: true)
 ---@field show_path boolean Whether to show path column (default: true)
 ---@field show_icon boolean Whether to show icon column (default: true)
----@field filename_width number Fixed width for filename column (default: 25)
----@field branch_width number Fixed width for branch column (default: 15)
+---@field filename_width number Maximum width of the filename column; longer names are truncated (default: 25)
+---@field branch_width number Maximum width of the branch column; longer names are truncated (default: 15)
 ---@field icon_width number Fixed width for icon column (default: 3)
 ---@field file_counter boolean Whether to show file counter in header (default: true)
 
@@ -531,6 +531,11 @@ local function define_highlights()
 
 	-- Select list Footer - configurable
 	vim.api.nvim_set_hl(0, "ScratchManagerSelectFooter", hl.footer or { fg = "#74c7ec", bold = true, italic = true })
+
+	-- snacks dashboard header (legacy option, kept for compatibility)
+	if config.dashboard_color then
+		vim.api.nvim_set_hl(0, "SnacksDashboardHeader", { fg = config.dashboard_color })
+	end
 
 	-- Floating badge icon - configurable
 	vim.api.nvim_set_hl(0, "ScratchManagerBadge", hl.badge or { fg = "#74c7ec", bold = true })
@@ -1267,7 +1272,7 @@ function M.setup(opts)
 	})
 
 	-- Legacy highlight for dashboard compatibility
-	vim.api.nvim_set_hl(0, "SnacksDashboardHeader", { fg = M.config.dashboard_color })
+	-- (the dashboard header color is set in define_highlights, so it survives colorscheme changes)
 end
 
 return M

@@ -3,17 +3,12 @@
 
 local M = {}
 
----Auto-detect Nerd Font support by testing character rendering
----@return boolean has_nerd_font True if Nerd Font appears to be supported
+---Whether to use Nerd Font icons. A terminal's font can't be detected from inside Neovim
+---(strdisplaywidth reports 1 for private-use glyphs either way), so this assumes a Nerd Font
+---unless `vim.g.have_nerd_font = false`
+---@return boolean has_nerd_font
 function M.detect_nerd_font()
-  -- Test if Nerd Font characters render as single-width
-  local test_chars = { "󰢱", "󰍔", "󰘦" } -- lua, markdown, json icons
-  for _, char in ipairs(test_chars) do
-    if vim.fn.strdisplaywidth(char) == 1 then
-      return true
-    end
-  end
-  return false
+  return vim.g.have_nerd_font ~= false
 end
 
 ---Get icon for file based on extension

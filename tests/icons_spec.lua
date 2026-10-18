@@ -106,4 +106,16 @@ describe("scratch-manager.icons", function()
       end
     end)
   end)
+
+  describe("nerd font setting (B11)", function()
+    it("assumes a Nerd Font unless vim.g.have_nerd_font is false", function()
+      local icons = require("scratch-manager.icons")
+      local saved = vim.g.have_nerd_font
+      vim.g.have_nerd_font = nil
+      assert.is_true(icons.detect_nerd_font())
+      vim.g.have_nerd_font = false
+      assert.is_false(icons.detect_nerd_font())
+      vim.g.have_nerd_font = saved
+    end)
+  end)
 end)

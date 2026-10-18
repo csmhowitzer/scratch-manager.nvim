@@ -37,6 +37,15 @@ local LAYOUT_CONSTANTS = {
 ---@param win_width number|nil Window width for right-alignment (header only)
 ---@return string Formatted line
 ---@return table|nil Highlight information for counter (header only)
+---Pad text with spaces to a display width (multibyte- and wide-character-aware, unlike %-Ns)
+---@param text string
+---@param width number
+---@return string
+function M.pad(text, width)
+  local missing = width - vim.fn.strdisplaywidth(text)
+  return missing > 0 and (text .. string.rep(" ", missing)) or text
+end
+
 function M.format_columns(selector, icon, filename, branch, cwd, widths, config, counter_text, win_width)
   -- Detect if this is a header row (filename is "Filename")
   local is_header = filename == "Filename"
@@ -45,29 +54,26 @@ function M.format_columns(selector, icon, filename, branch, cwd, widths, config,
 
   if is_header then
     -- Header: calculate left padding based on visible columns
-    local left_padding = ""
-    if config.ui.show_icon then
-      left_padding = string.rep(" ", 1 + widths.icon_width) -- selector + icon width + space
-    else
-      left_padding = "  " -- selector + space (no icon column)
-    end
-    table.insert(parts, left_padding .. string.format("%-" .. widths.filename_width .. "s", filename))
+    -- Rows are "selector icon filename ...": the filename starts after the selector, the icon
+    -- column and a space between each
+    local left_padding = config.ui.show_icon and string.rep(" ", 1 + 1 + widths.icon_width + 1) or "  "
+    table.insert(parts, left_padding .. M.pad(filename, widths.filename_width))
   else
     -- Content: include selector
     table.insert(parts, selector)
 
     -- Include icon column if enabled
     if config.ui.show_icon then
-      table.insert(parts, string.format("%-" .. widths.icon_width .. "s", icon))
+      table.insert(parts, M.pad(icon, widths.icon_width))
     end
 
     -- Always include filename
-    table.insert(parts, string.format("%-" .. widths.filename_width .. "s", filename))
+    table.insert(parts, M.pad(filename, widths.filename_width))
   end
 
   -- Include branch column if enabled and branch provided
   if config.ui.show_git_branch and branch then
-    table.insert(parts, string.format("%-" .. widths.branch_width .. "s", branch))
+    table.insert(parts, M.pad(branch, widths.branch_width))
   end
 
   -- Include path column if enabled
@@ -80,17 +86,13 @@ function M.format_columns(selector, icon, filename, branch, cwd, widths, config,
 
   -- Add file counter for header rows
   if is_header and counter_text and win_width then
-    local base_line_length = #line
-    local counter_length = #counter_text
-    local available_space = win_width - base_line_length - counter_length - 4 -- 4 for border padding
+    -- Space is measured in display cells; highlight positions are byte columns
+    local available_space = win_width - vim.fn.strdisplaywidth(line) - vim.fn.strdisplaywidth(counter_text) - 4 -- 4 for border padding
 
     if available_space > 0 then
-      local padding = string.rep(" ", available_space)
-      line = line .. padding .. counter_text
-
-      -- Calculate highlight position for the counter
-      local counter_start = base_line_length + available_space
-      local counter_end = counter_start + counter_length
+      local counter_start = #line + available_space
+      line = line .. string.rep(" ", available_space) .. counter_text
+      local counter_end = counter_start + #counter_text
       counter_highlight = {
         group = "ScratchManagerFileCount",
         start_col = counter_start,
@@ -176,18 +178,29 @@ end
 ---@param ellipsis string|nil Ellipsis string (defaults to "...")
 ---@return string truncated_text The text, truncated if necessary
 function M.truncate_text(text, max_width, ellipsis)
-  if not text or #text <= max_width then
+  if not text or vim.fn.strdisplaywidth(text) <= max_width then
     return text or ""
   end
 
   ellipsis = ellipsis or "..."
-  local ellipsis_len = #ellipsis
+  local ellipsis_len = vim.fn.strdisplaywidth(ellipsis)
 
   if max_width <= ellipsis_len then
-    return ellipsis:sub(1, max_width)
+    return vim.fn.strcharpart(ellipsis, 0, max_width)
   end
 
-  return text:sub(1, max_width - ellipsis_len) .. ellipsis
+  -- Keep whole characters (never split a multibyte character) up to the available width
+  local kept, width = {}, 0
+  for i = 0, vim.fn.strchars(text) - 1 do
+    local char = vim.fn.strcharpart(text, i, 1)
+    local w = vim.fn.strdisplaywidth(char)
+    if width + w > max_width - ellipsis_len then
+      break
+    end
+    table.insert(kept, char)
+    width = width + w
+  end
+  return table.concat(kept) .. ellipsis
 end
 
 ---Smart truncate path to show most relevant parts (preserves existing logic)
@@ -195,22 +208,25 @@ end
 ---@param max_width number Maximum width allowed
 ---@return string Truncated path
 function M.smart_truncate_path(path, max_width)
-  if #path <= max_width then
+  local width = vim.fn.strdisplaywidth
+  if width(path) <= max_width then
     return path
   end
 
   -- Try to show the last few directories
   local parts = vim.split(path, "/")
   if #parts <= 2 then
-    -- Simple truncation for short paths
-    return "..." .. path:sub(-(max_width - 3))
+    -- Simple truncation for short paths: keep the last characters that fit
+    local chars = vim.fn.strchars(path)
+    local keep = math.max(0, max_width - 3)
+    return "..." .. vim.fn.strcharpart(path, chars - keep, keep)
   end
 
   -- Build from the end, keeping as many directories as possible
   local result = parts[#parts] -- always keep the last part
   for i = #parts - 1, 1, -1 do
     local candidate = parts[i] .. "/" .. result
-    if #candidate + 3 > max_width then -- +3 for "..."
+    if width(candidate) + 3 > max_width then -- +3 for "..."
       break
     end
     result = candidate
@@ -241,9 +257,9 @@ function M.analyze_content_lengths(items, config)
     local branch = config.ui.show_git_branch and (item.branch or "") or ""
     local cwd = item.cwd and vim.fn.fnamemodify(item.cwd, ":p:~") or ""
 
-    max_filename = math.max(max_filename, #filename)
-    max_branch = math.max(max_branch, #branch)
-    max_cwd = math.max(max_cwd, #cwd)
+    max_filename = math.max(max_filename, vim.fn.strdisplaywidth(filename))
+    max_branch = math.max(max_branch, vim.fn.strdisplaywidth(branch))
+    max_cwd = math.max(max_cwd, vim.fn.strdisplaywidth(cwd))
   end
 
   return {
@@ -263,8 +279,15 @@ function M.calculate_ideal_widths(content_analysis, config)
   -- Start with actual content widths (no truncation)
   local selector_width = constants.SELECTOR_WIDTH
   local icon_width = config.ui.show_icon and config.ui.icon_width or 0
+  -- ui.filename_width / ui.branch_width cap the columns (long names are truncated with "...")
   local filename_width = content_analysis.max_filename
+  if (config.ui.filename_width or 0) > 0 then
+    filename_width = math.min(filename_width, config.ui.filename_width)
+  end
   local branch_width = config.ui.show_git_branch and content_analysis.max_branch or 0
+  if branch_width > 0 and (config.ui.branch_width or 0) > 0 then
+    branch_width = math.min(branch_width, config.ui.branch_width)
+  end
   local cwd_width = config.ui.show_path and content_analysis.max_cwd or 0
 
   -- Calculate padding based on visible columns (spaces between columns)

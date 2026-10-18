@@ -248,6 +248,50 @@ describe("scratch-manager.utils", function()
     end)
   end)
 
+  describe("display widths (B09)", function()
+    local config = { ui = { show_icon = true, show_git_branch = true, show_path = true } }
+    local widths = { selector_width = 2, icon_width = 3, filename_width = 12, branch_width = 6, cwd_width = 10 }
+    local function col_of(line, needle)
+      local byte = line:find(needle, 1, true)
+      return vim.fn.strdisplaywidth(line:sub(1, byte - 1))
+    end
+
+    it("pads by on-screen width, not bytes", function()
+      assert.equals(5, vim.fn.strdisplaywidth(utils.pad("é", 5)))
+      assert.equals(5, vim.fn.strdisplaywidth(utils.pad("📝", 5))) -- emoji are 2 cells wide
+      assert.equals("abcdef", utils.pad("abcdef", 3)) -- never cuts
+    end)
+
+    it("lines the header up with rows, whatever the icon", function()
+      local header = utils.format_columns(" ", "", "Filename", "Branch", "Working Directory", widths, config)
+      for _, icon in ipairs({ "x", "󰢱", "📝" }) do
+        local row = utils.format_columns(" ", icon, "naïve.lua", "main", "~/p", widths, config)
+        assert.equals(col_of(header, "Filename"), col_of(row, "naïve.lua"))
+        assert.equals(col_of(header, "Branch"), col_of(row, "main"))
+        assert.equals(col_of(header, "Working"), col_of(row, "~/p"))
+      end
+    end)
+
+    it("truncates without splitting multibyte characters", function()
+      local out = utils.truncate_text("ñandú-éxito-çafé", 8)
+      assert.equals(8, vim.fn.strdisplaywidth(out))
+      assert.truthy(vim.fn.strchars(out) > 0 and out:find("%.%.%.$"))
+      assert.equals(1, vim.fn.strcharlen(out:sub(1, #vim.fn.strcharpart(out, 0, 1)))) -- valid first char
+      assert.equals("ab", utils.truncate_text("ab", 8))
+    end)
+  end)
+
+  describe("column width limits (B10)", function()
+    it("caps filename and branch columns at ui.filename_width / ui.branch_width", function()
+      local config = { ui = { show_icon = true, show_git_branch = true, show_path = true, icon_width = 3, filename_width = 10, branch_width = 4 } }
+      local calc = utils.calculate_ideal_widths({ max_filename = 40, max_branch = 20, max_cwd = 10 }, config)
+      assert.equals(10, calc.column_widths.filename_width)
+      assert.equals(4, calc.column_widths.branch_width)
+      local short = utils.calculate_ideal_widths({ max_filename = 6, max_branch = 2, max_cwd = 10 }, config)
+      assert.equals(6, short.column_widths.filename_width) -- caps, never pads up
+    end)
+  end)
+
   describe("truncate_text", function()
     it("should not truncate short text", function()
       local result = utils.truncate_text("short", 10)

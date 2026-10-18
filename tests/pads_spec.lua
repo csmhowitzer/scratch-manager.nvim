@@ -824,6 +824,13 @@ describe("scratch-manager pads", function()
         assert.equals("#a6d189", string.format("#%06x", vim.api.nvim_get_hl(0, { name = "ScratchManagerDbBorder" }).fg))
       end)
 
+      it("keeps the dashboard header color after a colorscheme change (B13)", function()
+        sm.setup({ enable_keymaps = false, dashboard_color = "#4ecdc4" })
+        vim.cmd("highlight clear")
+        vim.cmd("doautocmd ColorScheme")
+        assert.equals("#4ecdc4", string.format("#%06x", vim.api.nvim_get_hl(0, { name = "SnacksDashboardHeader" }).fg))
+      end)
+
       it("colors .Dump() values orange by default (not like diagnostics), configurable", function()
         sm.setup({ enable_keymaps = false })
         local default = vim.api.nvim_get_hl(0, { name = "ScratchManagerDump" })

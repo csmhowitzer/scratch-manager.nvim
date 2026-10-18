@@ -69,7 +69,7 @@ function M.format_item_line(item, widths, is_selected, config)
 		-- Icon starts after: selector + space = ICON_POSITION_OFFSET
 		local constants = utils.get_layout_constants()
 		local icon_start = constants.ICON_POSITION_OFFSET -- 0-based position
-		local icon_end = icon_start + vim.fn.strdisplaywidth(icon)
+		local icon_end = icon_start + #icon -- highlight columns are bytes (icons are multibyte)
 		highlights = { icon_hl, icon_start, icon_end }
 	end
 

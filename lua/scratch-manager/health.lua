@@ -30,7 +30,7 @@ end
 ---@return boolean exists True if directory exists
 local function check_directory_exists(dirpath)
   local expanded_path = vim.fn.expand(dirpath)
-  local stat = vim.loop.fs_stat(expanded_path)
+  local stat = (vim.uv or vim.loop).fs_stat(expanded_path)
   return stat and stat.type == "directory"
 end
 
@@ -128,28 +128,17 @@ local function check_nerd_font()
     { char = "󰌛", name = "C# icon", ext = "cs" },
   }
 
-  local passing_tests = 0
+  -- A terminal's font can't be detected from inside Neovim (private-use glyphs report width 1
+  -- either way), so report the setting and show sample icons to eyeball instead
+  local samples = {}
   for _, test in ipairs(test_chars) do
-    local width = vim.fn.strdisplaywidth(test.char)
-    if width == 1 then
-      passing_tests = passing_tests + 1
-      vim.health.ok(string.format("%s renders correctly (width: %d)", test.name, width))
-    else
-      vim.health.warn(string.format("%s renders incorrectly (width: %d, expected: 1)", test.name, width))
-    end
+    table.insert(samples, test.char .. " " .. test.name)
   end
-
-  local detected_nerd_font = passing_tests >= 2
-
-  -- Primary assessment based on character width test
-  if detected_nerd_font then
-    vim.health.ok("Nerd Font support - detected and working")
-    vim.health.info("Icons will display correctly")
+  vim.health.info("Sample icons (they should look like icons, not boxes): " .. table.concat(samples, ", "))
+  if vim.g.have_nerd_font == false then
+    vim.health.info("Nerd Font icons off (vim.g.have_nerd_font = false): plain-text fallbacks are used")
   else
-    vim.health.warn("Nerd Font support - not detected")
-    vim.health.info("Icons will use unicode fallbacks")
-    vim.health.info("Install a Nerd Font and set vim.g.have_nerd_font = true")
-    vim.health.info("See :help scratch-manager-troubleshooting for details")
+    vim.health.ok("Nerd Font icons on (set vim.g.have_nerd_font = false if the samples show boxes)")
   end
 
   -- Show user configuration status
@@ -157,7 +146,7 @@ local function check_nerd_font()
     local status = vim.g.have_nerd_font and "enabled" or "disabled"
     vim.health.info(string.format("User setting: vim.g.have_nerd_font = %s", tostring(vim.g.have_nerd_font)))
   else
-    vim.health.info("User setting: vim.g.have_nerd_font not set (will auto-detect)")
+    vim.health.info("User setting: vim.g.have_nerd_font not set (assumes a Nerd Font)")
   end
 
   -- Show sample icons

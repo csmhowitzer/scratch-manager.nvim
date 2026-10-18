@@ -43,6 +43,7 @@ package.loaded["snacks"] = mock_snacks
 
 describe("scratch-manager", function()
   local scratch_manager
+  local original_fnamemodify = vim.fn.fnamemodify
 
   before_each(function()
     -- Ensure snacks mock is in place
@@ -83,6 +84,7 @@ describe("scratch-manager", function()
     -- Restore original require and clean up package.loaded
     _G.require = original_require
     package.loaded["snacks"] = nil
+    vim.fn.fnamemodify = original_fnamemodify
   end)
 
   describe("setup", function()

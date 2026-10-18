@@ -8,6 +8,21 @@ local ui = require("scratch-manager.ui")
 local utils = require("scratch-manager.utils")
 
 -- Selection UI state
+---Highlight a range with an extmark (nvim_buf_add_highlight is deprecated); col_end -1 = end of line
+---@param buf number
+---@param ns number
+---@param group string
+---@param line number 0-based
+---@param col_start number
+---@param col_end number
+local function add_highlight(buf, ns, group, line, col_start, col_end)
+	if col_end == -1 then
+		local ok, lines = pcall(vim.api.nvim_buf_get_lines, buf, line, line + 1, false)
+		col_end = ok and #(lines[1] or "") or 0
+	end
+	pcall(vim.api.nvim_buf_set_extmark, buf, ns, line, col_start, { end_col = col_end, hl_group = group })
+end
+
 local selection_ui = {
 	header_buf = nil,
 	header_win = nil,
@@ -104,7 +119,7 @@ local function create_header_window(config, layout, win_config)
 	-- Apply file counter highlighting if present
 	if counter_highlight then
 		local counter_ns_id = vim.api.nvim_create_namespace("scratch-manager-file-count")
-		vim.api.nvim_buf_add_highlight(
+		add_highlight(
 			selection_ui.header_buf,
 			counter_ns_id,
 			counter_highlight.group,
@@ -116,8 +131,8 @@ local function create_header_window(config, layout, win_config)
 
 	-- Apply header highlighting
 	local header_ns_id = vim.api.nvim_create_namespace("scratch-manager-header")
-	vim.api.nvim_buf_add_highlight(selection_ui.header_buf, header_ns_id, "ScratchManagerSelectHeader", 0, 0, -1)
-	vim.api.nvim_buf_add_highlight(selection_ui.header_buf, header_ns_id, "ScratchManagerSeparator", 1, 0, -1)
+	add_highlight(selection_ui.header_buf, header_ns_id, "ScratchManagerSelectHeader", 0, 0, -1)
+	add_highlight(selection_ui.header_buf, header_ns_id, "ScratchManagerSeparator", 1, 0, -1)
 end
 
 ---Create content window with scrollable items
@@ -165,7 +180,7 @@ local function create_content_window(config, layout, win_config)
 	local icon_ns_id = vim.api.nvim_create_namespace("scratch-manager-icons")
 	for line_num, highlight_info in pairs(item_highlights) do
 		local hl_group, col_start, col_end = unpack(highlight_info)
-		vim.api.nvim_buf_add_highlight(selection_ui.content_buf, icon_ns_id, hl_group, line_num - 1, col_start, col_end)
+		add_highlight(selection_ui.content_buf, icon_ns_id, hl_group, line_num - 1, col_start, col_end)
 	end
 end
 
@@ -182,7 +197,7 @@ local function update_selection_highlighting()
 	-- Highlight selected item FIRST (so icon highlights can override it)
 	if selection_ui.selected_idx > 0 and selection_ui.selected_idx <= #selection_ui.items then
 		local line_idx = selection_ui.selected_idx - 1 -- Convert 1-based selected_idx to 0-based buffer line
-		vim.api.nvim_buf_add_highlight(selection_ui.content_buf, ns_id, "Visual", line_idx, 0, -1)
+		add_highlight(selection_ui.content_buf, ns_id, "Visual", line_idx, 0, -1)
 	end
 
 	-- Icon highlights live in their own namespace that is never cleared, so they persist
