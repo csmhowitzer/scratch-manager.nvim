@@ -506,6 +506,22 @@ describe("scratch-manager pads", function()
       assert.is_true(groups.ScratchManagerHelpTitle and groups.ScratchManagerHelpHeading and groups.ScratchManagerHelpCode)
     end)
 
+    it("renders code examples with aligned values, and syntax colors when the parser exists", function()
+      local lines, hls = help.render({ { lang = "lua", code = { { "local a = 1", "1" }, { "a", "x" }, "print(a)" } } })
+      assert.same({ "    local a = 1  → 1", "    a            → x", "    print(a)" }, lines)
+      local dump, syntax = 0, false
+      for _, h in ipairs(hls) do
+        dump = dump + (h[4] == "ScratchManagerDump" and 1 or 0)
+        syntax = syntax or h[4] == "@keyword.lua"
+      end
+      assert.equals(2, dump)
+      assert.is_true(syntax) -- lua's parser ships with Neovim
+
+      -- unknown language: the whole line in the code color
+      local _, plain = help.render({ { lang = "nolang", code = { "x" } } })
+      assert.same({ { 0, 0, 5, "ScratchManagerHelpCode" } }, plain)
+    end)
+
     it("closes with q", function()
       sm.setup({ enable_keymaps = false })
       sm.show_help(pad_buf("markdown", tmp .. "/notes.cs"))

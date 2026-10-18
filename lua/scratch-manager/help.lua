@@ -142,6 +142,32 @@ function M.inline(text)
 	return table.concat(out), ranges
 end
 
+---Syntax highlights for a code example, from the language's Treesitter highlight query
+---@param code string[]
+---@param lang string Treesitter language, e.g. "c_sharp"
+---@return { [1]: number, [2]: number, [3]: number, [4]: string }[]|nil highlights { row, start_col, end_col, group }, nil without a parser
+function M.code_highlights(code, lang)
+	local source = table.concat(code, "\n")
+	local ok, parser = pcall(vim.treesitter.get_string_parser, source, lang)
+	local query = ok and vim.treesitter.query.get(lang, "highlights")
+	if not query then
+		return nil
+	end
+	local tree = parser:parse()[1]
+	local out = {}
+	for id, node in query:iter_captures(tree:root(), source) do
+		local name = query.captures[id]
+		if not name:match("^_") and name ~= "spell" and name ~= "nospell" then
+			local sr, sc, er, ec = node:range()
+			for row = sr, er do
+				local last = row == er and ec or #(code[row + 1] or "")
+				table.insert(out, { row, row == sr and sc or 0, last, "@" .. name .. "." .. lang })
+			end
+		end
+	end
+	return out
+end
+
 ---Render blocks to lines and highlights
 ---@param blocks table[]
 ---@return string[] lines
@@ -184,9 +210,34 @@ function M.render(blocks)
 			end
 			blank()
 		elseif block.code then
-			for _, line in ipairs(block.code) do
-				local text = "    " .. line
-				add(text, line ~= "" and { { 0, #text, "ScratchManagerHelpCode" } } or {})
+			-- Lines are strings, or { code, value } to show a value the way the pad does (→ value)
+			local code, values = {}, {}
+			for i, line in ipairs(block.code) do
+				code[i] = type(line) == "table" and line[1] or line
+				values[i] = type(line) == "table" and line[2] or nil
+			end
+			local width = 0
+			for i, line in ipairs(code) do
+				if values[i] then
+					width = math.max(width, vim.api.nvim_strwidth(line))
+				end
+			end
+			local syntax = block.lang and M.code_highlights(code, block.lang)
+			local indent = "    "
+			local first = #lines
+			for i, line in ipairs(code) do
+				local text = indent .. line
+				local ranges = (not syntax and line ~= "") and { { 0, #text, "ScratchManagerHelpCode" } } or {}
+				if values[i] then
+					text = text .. string.rep(" ", width - vim.api.nvim_strwidth(line))
+					local value = "  → " .. values[i]
+					table.insert(ranges, { #text, #text + #value, "ScratchManagerDump" })
+					text = text .. value
+				end
+				add(text, ranges)
+			end
+			for _, hl in ipairs(syntax or {}) do
+				table.insert(hls, { first + hl[1], hl[2] + #indent, hl[3] + #indent, hl[4] })
 			end
 			blank()
 		elseif block.t then
