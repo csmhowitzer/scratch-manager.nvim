@@ -98,6 +98,7 @@ Default configuration:~
     enable_keymaps = true,          -- Whether to set up default keymaps
     wrap = { notes = true, code = false, db = false }, -- <M-z> toggles
     autosave = true,                -- Save pads after every change
+    smart_persistence = true,       -- Delete pads closed with nothing in them
     lsp = { detach = true, allow = { "lua_ls" }, mirror = true }, -- servers on pads
     keymaps = {
       toggle = "==",                -- Toggle scratch buffer (markdown)
@@ -184,6 +185,14 @@ autosave                (boolean)
     so closing, switching, quitting or an external reload never asks to
     save a pad. Writes skip autocommands, so format-on-save does not run
     on scratch content. Default: true
+
+*scratch-manager-config-smart_persistence*
+smart_persistence       (boolean)
+    Delete a pad when its window closes (or Neovim exits) with nothing in
+    it: every line blank, or an import line of the pad's language (C#:
+    `using` and `#:` lines, which the plugin adds itself). Its remembered
+    source file, DB connection and run directory go too, so the `=s` list and the
+    badges only show pads with something in them. Default: true
 
 *scratch-manager-config-lsp*
 lsp                     (table)

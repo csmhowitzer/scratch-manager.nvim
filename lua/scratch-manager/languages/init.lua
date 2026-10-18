@@ -102,6 +102,21 @@ function M.get(ft)
 	return cache[ft]
 end
 
+---Does a pad hold nothing worth keeping? Every line is blank or an import line of its language
+---(C#: `using`, the `#:project` line the plugin adds), so opening a pad and closing it leaves nothing.
+---@param ft string
+---@param lines string[]
+---@return boolean
+function M.is_empty(ft, lines)
+	local lang = M.get(ft)
+	for _, line in ipairs(lines) do
+		if line:match("%S") and not lang.is_import(line) then
+			return false
+		end
+	end
+	return true
+end
+
 ---Add or override a language profile, e.g. from your config:
 ---`require("scratch-manager.languages").register("python", { run = { cmd = ..., file = "scratch.py" } })`
 ---@param ft string

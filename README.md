@@ -85,6 +85,7 @@ require("scratch-manager").setup({
   enable_keymaps = true,          -- Whether to set up default keymaps
   wrap = { notes = true, code = false, db = false }, -- Soft-wrap per pad kind (or true/false); <M-z> toggles
   autosave = true,                -- Save pads after every change (never prompts to save)
+  smart_persistence = true,       -- Delete pads closed with nothing in them (blank, or only using/#: lines)
   lsp = {
     detach = true,                -- Keep language servers off pads (they can't resolve pad files)
     allow = { "lua_ls" },         -- ...except these

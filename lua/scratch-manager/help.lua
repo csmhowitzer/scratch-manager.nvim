@@ -58,7 +58,7 @@ local function common(info)
 		{
 			ul = {
 				"The same key closes a pad you're in; the badges in the top-right corner open them.",
-				"Pads save themselves after every change; there is nothing to `:w`.",
+				"Pads save themselves after every change; there is nothing to `:w`. A pad closed with nothing in it is deleted.",
 				"A pad belongs to the file name, Neovim's working directory (`:pwd`), the git branch and the pad's filetype.",
 			},
 		},

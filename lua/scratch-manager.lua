@@ -69,6 +69,8 @@ local store = require("scratch-manager.store")
 ---@field enable_keymaps boolean Whether to set up default keymaps
 ---@field wrap boolean|{ notes: boolean, code: boolean, db: boolean } Soft-wrap long lines per pad kind, or for all (default: notes only)
 ---@field autosave boolean Save pads after every change so they never prompt to save (default: true)
+---@field smart_persistence boolean Delete a pad when it's closed with nothing in it (blank, or only the
+---  language's import lines such as C# `using` / `#:` lines), so `=s` and the badges only show real pads (default: true)
 ---@field lsp { detach: boolean, allow: string[], mirror: boolean } Language servers on pads: keep them off except `allow`;
 ---  `mirror` lets the servers a language profile names (C#: roslyn) run in pads through a clean mirror file (default: true)
 ---@field run { cs: ScratchManagerRunConfig, sql: ScratchManagerSqlConfig } Runners for pads by filetype (Lua pads use snacks' own <CR>)
@@ -148,6 +150,7 @@ local default_config = {
 	enable_keymaps = true,
 	wrap = { notes = true, code = false, db = false }, -- or true/false for every kind; <M-z> toggles
 	autosave = true,
+	smart_persistence = true,
 	-- Pads are throwaway files outside any project, with encoded file names servers can't handle
 	-- (Roslyn crashes on them). Detach language servers from pads, except the ones listed in allow.
 	lsp = {
@@ -1104,6 +1107,73 @@ local function setup_autosave()
 	})
 end
 
+---Forget a pad left empty: wipe its buffer, delete its file and what was stored for it
+---(source file, DB connection, run and mirror directories). Only when no window shows it anymore.
+---@param bufnr number
+---@private
+local function forget_empty_pad(bufnr)
+	if not (vim.api.nvim_buf_is_valid(bufnr) and is_pad_buffer(bufnr)) or #vim.fn.win_findbuf(bufnr) > 0 then
+		return
+	end
+	local ft = vim.bo[bufnr].filetype
+	if not languages.is_empty(ft, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) then
+		return
+	end
+	local file = vim.fs.normalize(vim.api.nvim_buf_get_name(bufnr))
+	local mirror = pad_lsp.mirror(bufnr)
+	-- Wipe first so nothing (snacks' save-on-hide, autosave) writes the file back
+	pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+	if vim.fn.filereadable(file) == 1 then
+		vim.fn.delete(file)
+	end
+	if store.get("pad_sources", file) ~= nil then
+		store.set("pad_sources", file, nil)
+	end
+	for _, name in ipairs({ "sql_connections" }) do
+		if store.get(name, file) ~= nil then
+			store.set(name, file, nil)
+		end
+	end
+	vim.fn.delete(runner.work_dir(file, ft), "rf")
+	if mirror then
+		vim.fn.delete(vim.fs.dirname(mirror), "rf")
+	end
+	pcall(M.refresh_indicator)
+end
+
+---Set up smart persistence: a pad closed with nothing in it is deleted (see `smart_persistence`)
+---@private
+local function setup_persistence()
+	local group = vim.api.nvim_create_augroup("ScratchManagerPersistence", { clear = true })
+	if get_config().smart_persistence == false then
+		return
+	end
+	vim.api.nvim_create_autocmd("BufHidden", {
+		group = group,
+		pattern = scratch_root() .. "/*",
+		callback = function(args)
+			-- After the window has closed (and snacks' own BufHidden handling)
+			vim.schedule(function()
+				forget_empty_pad(args.buf)
+			end)
+		end,
+	})
+	vim.api.nvim_create_autocmd("VimLeavePre", {
+		group = group,
+		callback = function()
+			for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+				if vim.api.nvim_buf_is_loaded(bufnr) and is_pad_buffer(bufnr) then
+					local file = vim.api.nvim_buf_get_name(bufnr)
+					if languages.is_empty(vim.bo[bufnr].filetype, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) then
+						vim.fn.delete(file)
+						store.set("pad_sources", vim.fs.normalize(file), nil)
+					end
+				end
+			end
+		end,
+	})
+end
+
 ---Show language-specific help for a pad (what <CR> does here, keys, tips)
 ---@param bufnr number|nil Pad buffer (defaults to the current buffer)
 function M.show_help(bufnr)
@@ -1324,6 +1394,7 @@ function M.setup(opts)
 
 	setup_indicator()
 	setup_autosave()
+	setup_persistence()
 
 	-- Create user command
 	vim.api.nvim_create_user_command("ScratchPadDisplay", function()

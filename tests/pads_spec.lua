@@ -531,6 +531,71 @@ describe("scratch-manager pads", function()
     end)
   end)
 
+  describe("smart persistence", function()
+    local store = require("scratch-manager.store")
+    local root
+
+    -- Show a pad file in a split with the given text (saved), from a source buffer
+    local function open_pad(name, lines)
+      root = vim.fn.stdpath("data") .. "/scratch"
+      assert.truthy(root:find(vim.env.SCRATCH_MANAGER_TEST_HOME, 1, true)) -- never the real dir
+      vim.fn.mkdir(root, "p")
+      local file = normalize(root .. "/" .. name)
+      vim.cmd.edit(vim.fn.fnameescape(tmp .. "/src/A.cs"))
+      vim.cmd("split " .. vim.fn.fnameescape(file))
+      vim.bo.bufhidden = "hide" -- like snacks
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+      vim.cmd("silent write")
+      return file, vim.api.nvim_get_current_buf()
+    end
+
+    -- Close the pad's window and let the scheduled check run
+    local function close_pad(bufnr)
+      vim.cmd("close")
+      vim.wait(200, function() return not vim.api.nvim_buf_is_valid(bufnr) end)
+    end
+
+    it("deletes a pad closed with nothing in it, and what was stored for it", function()
+      sm.setup({ enable_keymaps = false })
+      local file, bufnr = open_pad("blank.markdown", { "", "   ", "" })
+      store.set("pad_sources", file, tmp .. "/src/A.cs")
+      close_pad(bufnr)
+      assert.equals(0, vim.fn.filereadable(file))
+      assert.is_false(vim.api.nvim_buf_is_valid(bufnr))
+      assert.is_nil(store.get("pad_sources", file))
+    end)
+
+    it("counts a C# pad with only using / #: lines as empty (the plugin adds those)", function()
+      sm.setup({ enable_keymaps = false })
+      local file, bufnr = open_pad("gen.cs", { "#:project /x/A.csproj", "using System.Text;", "" })
+      close_pad(bufnr)
+      assert.equals(0, vim.fn.filereadable(file))
+    end)
+
+    it("keeps pads with content, and every pad with smart_persistence = false", function()
+      sm.setup({ enable_keymaps = false })
+      local file, bufnr = open_pad("real.cs", { "using System.Text;", "", "var a = 1;" })
+      close_pad(bufnr)
+      assert.equals(1, vim.fn.filereadable(file))
+      assert.is_true(vim.api.nvim_buf_is_valid(bufnr))
+
+      sm.setup({ enable_keymaps = false, smart_persistence = false })
+      local blank, blank_buf = open_pad("kept.markdown", { "" })
+      close_pad(blank_buf)
+      assert.equals(1, vim.fn.filereadable(blank))
+    end)
+
+    it("leaves a pad alone while another window still shows it", function()
+      sm.setup({ enable_keymaps = false })
+      local file, bufnr = open_pad("twice.markdown", { "" })
+      vim.cmd("split")
+      vim.cmd("close")
+      vim.wait(100)
+      assert.equals(1, vim.fn.filereadable(file))
+      assert.is_true(vim.api.nvim_buf_is_valid(bufnr))
+    end)
+  end)
+
   describe("autosave", function()
     -- Open a pad file under the scratch root (where snacks keeps pads) and make it unsaved
     local function edit_unsaved_pad()
