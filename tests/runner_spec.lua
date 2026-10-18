@@ -195,7 +195,7 @@ describe("scratch-manager.runner", function()
     local function virt_texts(buf)
       local out = {}
       for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
-        if m[4].virt_text then
+        if m[4].virt_text and m[4].virt_text[1][1] ~= "◉ watch" then -- values only, not the watch marker
           out[m[2] + 1] = m[4].virt_text[1][1]
         end
       end
@@ -264,6 +264,98 @@ describe("scratch-manager.runner", function()
       assert.are_not.equal(buf, popup)
       assert.same({ "1" }, vim.api.nvim_buf_get_lines(popup, 0, -1, false))
       vim.cmd("close")
+    end)
+
+    describe("watch mode", function()
+      local counter
+
+      -- Stand-in for dotnet: counts runs, reports how many "x"/"y" lines the pad has as the value of line 1
+      local function watch_config(extra)
+        counter = vim.fn.tempname()
+        local script = "echo run >> " .. counter .. [[; printf '\036%s\037%s\n' 1 "xy=$(grep -cE '^(x|y)$' "$0")"]]
+          .. (extra or "")
+        return { cmd = { "sh", "-c", script }, watch_delay = 20 }
+      end
+      local function runs()
+        return vim.fn.filereadable(counter) == 1 and #vim.fn.readfile(counter) or 0
+      end
+      -- Add lines at the end, like typing below the code (line 1 and its value stay put)
+      local function add(buf, lines)
+        vim.api.nvim_buf_set_lines(buf, -1, -1, false, lines)
+        vim.cmd("doautocmd TextChanged")
+      end
+      local function output_open()
+        return runner._output.win ~= nil and vim.api.nvim_win_is_valid(runner._output.win)
+      end
+
+      after_each(function()
+        for _, b in ipairs(vim.api.nvim_list_bufs()) do
+          runner.watch(b, "cs", {}, false)
+        end
+      end)
+
+      it("runs right away and after edits, quietly, keeping values in place", function()
+        local buf = pad_buffer({ "a.Dump();" })
+        local config = watch_config()
+        assert.is_true(runner.watch(buf, "cs", config))
+        assert.is_true(runner.watching(buf))
+        vim.wait(5000, function() return virt_texts(buf)[1] ~= nil end)
+        assert.equals("  → xy=0", virt_texts(buf)[1])
+        assert.is_false(output_open()) -- everything went inline
+        assert.equals(1, runs())
+
+        add(buf, { "x" })
+        assert.equals("  → xy=0", virt_texts(buf)[1]) -- kept until the rerun replaces it
+        vim.wait(5000, function() return virt_texts(buf)[1] == "  → xy=1" end)
+        assert.equals("  → xy=1", virt_texts(buf)[1])
+        assert.equals(2, runs())
+        local marks = vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })
+        local watch_mark = vim.tbl_filter(function(m)
+          return m[4].virt_text and m[4].virt_text[1][1] == "◉ watch"
+        end, marks)
+        assert.equals(1, #watch_mark)
+      end)
+
+      it("doesn't rerun while the pad has no .Dump()", function()
+        local buf = pad_buffer({ "var a = 1; // a.Dump();" })
+        runner.watch(buf, "cs", watch_config())
+        add(buf, { "var b = 2;" })
+        vim.wait(300)
+        assert.equals(0, runs())
+      end)
+
+      it("shows the output when the run fails or prints something", function()
+        local buf = pad_buffer({ "a.Dump();" })
+        runner.watch(buf, "cs", watch_config("; echo printed; exit 1"))
+        local lines = wait_for_output()
+        assert.same({ "printed" }, lines)
+      end)
+
+      it("turning it off clears the values and stops reruns", function()
+        local buf = pad_buffer({ "a.Dump();" })
+        runner.watch(buf, "cs", watch_config())
+        vim.wait(5000, function() return virt_texts(buf)[1] ~= nil end)
+        assert.is_false(runner.watch(buf, "cs", {}))
+        assert.same({}, virt_texts(buf))
+        add(buf, { "x" })
+        vim.wait(200)
+        assert.equals(1, runs())
+      end)
+
+      it("reruns once for edits made during a run, skipping the stale result", function()
+        local buf = pad_buffer({ "a.Dump();" })
+        local config = watch_config()
+        config.cmd[3] = "sleep 0.3; " .. config.cmd[3]
+        runner.watch(buf, "cs", config)
+        vim.wait(50)
+        add(buf, { "x" })
+        vim.wait(50)
+        add(buf, { "y" })
+        vim.wait(5000, function() return runs() >= 2 and runner._running(buf) == nil end)
+        vim.wait(400)
+        assert.equals(2, runs()) -- the first run, then one for both edits
+        assert.equals("  → xy=2", virt_texts(buf)[1])
+      end)
     end)
 
     it("pretty-prints JSON for the popup, leaving other values alone", function()

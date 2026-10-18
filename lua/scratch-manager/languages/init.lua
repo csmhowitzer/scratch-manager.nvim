@@ -44,6 +44,8 @@ local M = {}
 ---  details shown in the output, and a placeholder while running. ctx: bufnr, pad_lines, range,
 ---  config, scope(extra). Default: the pad (or selected) lines as they are.
 ---@field hide_line? fun(line: string): boolean Output noise to hide (counted as "warnings hidden")
+---@field watchable? fun(lines: string[]): boolean Watch mode reruns only while this is true (C#: a
+---  `.Dump()` call); without it, the language has no watch mode
 
 ---@class ScratchManagerLanguage
 ---@field imports? fun(source_lines: string[]): string[]

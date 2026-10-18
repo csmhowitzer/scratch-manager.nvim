@@ -189,7 +189,10 @@ function M.show_inline(bufnr, dumps)
 		vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
 			buffer = bufnr,
 			callback = function()
-				M.clear_inline(bufnr)
+				-- Watched pads keep their values (they move with their lines) until the rerun replaces them
+				if not M.watching(bufnr) then
+					M.clear_inline(bufnr)
+				end
 			end,
 		})
 	end
@@ -377,12 +380,31 @@ local function scope_text(range, extra)
 	return extra and (text .. " + " .. extra) or text
 end
 
+---Does this pad have anything for watch mode to show? (C#: a .Dump() call)
+---@param bufnr number
+---@param ft string
+---@return boolean
+local function watchable(bufnr, ft)
+	local spec = languages.get(ft).run or {}
+	return spec.watchable ~= nil and spec.watchable(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+end
+
+-- Pads with a run in progress: bufnr -> { again = boolean } (a watch rerun is queued)
+local running = {}
+
 ---Run a pad with its language's run spec
 ---@param bufnr number Pad buffer
 ---@param ft string Pad filetype (selects the language profile)
 ---@param config ScratchManagerRunConfig|nil
-function M.run(bufnr, ft, config)
+---@param opts { watch: boolean }|nil watch: a rerun after an edit; quiet unless something needs
+---  attention (errors, printed output), keeps the current values until new ones arrive
+function M.run(bufnr, ft, config, opts)
 	config = config or {}
+	opts = opts or {}
+	if opts.watch and running[bufnr] then
+		running[bufnr].again = true -- one more run once this one is done
+		return
+	end
 	local spec = languages.get(ft).run
 	if not spec then
 		vim.notify("No runner for " .. ft .. " pads", vim.log.levels.WARN)
@@ -400,7 +422,7 @@ function M.run(bufnr, ft, config)
 	local dir = M.work_dir(vim.api.nvim_buf_get_name(bufnr), ft)
 	M.ensure_dir(dir)
 	local file = dir .. "/" .. spec.file
-	local range = selection_range()
+	local range = not opts.watch and selection_range() or nil
 	local pad_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
 	local compiled, details, placeholder
@@ -421,16 +443,39 @@ function M.run(bufnr, ft, config)
 	if range and not spec.prepare then
 		table.insert(details, scope_text(range))
 	end
-	M.clear_inline(bufnr)
+	if not opts.watch then
+		M.clear_inline(bufnr)
+	end
 	vim.fn.writefile(compiled, file)
 	table.insert(cmd, file)
 
 	local title = spec.title or table.concat(cmd, " ", 1, 1)
-	M.show_output({ placeholder or "Running…" }, title .. "…", pad_win, max_height,
-		#details > 0 and table.concat(details, " · ") or nil)
+	if M.watching(bufnr) then
+		title = title .. " · watch"
+	end
+	if not opts.watch then
+		M.show_output({ placeholder or "Running…" }, title .. "…", pad_win, max_height,
+			#details > 0 and table.concat(details, " · ") or nil)
+	end
 	local started = vim.uv.hrtime()
+	local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+	running[bufnr] = running[bufnr] or { again = false }
 	vim.system(cmd, { cwd = dir, text = true }, function(result)
 		vim.schedule(function()
+			local state = running[bufnr]
+			running[bufnr] = nil
+			-- Edited while running (watch mode): run again, and skip results that describe old text
+			if M.watching(bufnr) and vim.api.nvim_buf_is_valid(bufnr) then
+				local stale = vim.api.nvim_buf_get_changedtick(bufnr) ~= tick
+				if (stale or (state and state.again)) and watchable(bufnr, ft) then
+					vim.schedule(function()
+						M.run(bufnr, ft, config, { watch = true })
+					end)
+					if stale then
+						return
+					end
+				end
+			end
 			local text = (result.stdout or "") .. (result.stderr or "")
 			-- Point messages at the pad instead of the hidden work file
 			text = text:gsub(vim.pesc(file), "pad")
@@ -460,11 +505,22 @@ function M.run(bufnr, ft, config)
 			end
 			local ms = math.floor((vim.uv.hrtime() - started) / 1e6)
 			local status = result.code == 0 and "✓ ok" or ("✗ exit " .. result.code)
+			local printed = #lines > 0
 			if #lines == 0 and dumped > 0 then
 				lines = { ("%d value%s shown inline (K on its line for the full value)"):format(dumped, dumped == 1 and "" or "s") }
 			end
 			if hidden > 0 then
 				table.insert(details, ("%d warning%s hidden"):format(hidden, hidden == 1 and "" or "s"))
+			end
+			if opts.watch then
+				if result.code ~= 0 and dumped == 0 then
+					M.clear_inline(bufnr) -- values from before the error would mislead
+				end
+				-- Quiet when everything went into inline values; show errors and printed output
+				if result.code == 0 and not printed then
+					M.close_output()
+					return
+				end
 			end
 			M.show_output(lines, ("%s · %s · %s"):format(title, status, duration(ms)), pad_win, max_height,
 				#details > 0 and table.concat(details, " · ") or nil)
@@ -479,6 +535,78 @@ function M.relayout(pad_win)
 	if last and last.pad_win == pad_win and output.win and vim.api.nvim_win_is_valid(output.win) then
 		M.show_output(last.lines, last.title, last.pad_win, last.max_height, last.details)
 	end
+end
+
+-- Watch mode -------------------------------------------------------------------------------
+
+local watchers = {} -- pad bufnr -> { group, timer }
+local watch_ns = vim.api.nvim_create_namespace("scratch-manager-watch")
+
+---Is watch mode on for this pad?
+---@param bufnr number
+---@return boolean
+function M.watching(bufnr)
+	return watchers[bufnr] ~= nil
+end
+
+---Turn watch mode on or off for a pad: rerun shortly after each edit (normal mode / leaving
+---insert mode), only while the pad has something to show inline. Off clears the values.
+---@param bufnr number
+---@param ft string
+---@param config ScratchManagerRunConfig|nil
+---@param on boolean|nil Default: toggle
+---@return boolean on
+function M.watch(bufnr, ft, config, on)
+	config = config or {}
+	if on == nil then
+		on = not M.watching(bufnr)
+	end
+	local current = watchers[bufnr]
+	if current then
+		pcall(vim.api.nvim_del_augroup_by_id, current.group)
+		if current.timer then
+			current.timer:stop()
+			current.timer:close()
+		end
+		watchers[bufnr] = nil
+		if vim.api.nvim_buf_is_valid(bufnr) then
+			vim.api.nvim_buf_clear_namespace(bufnr, watch_ns, 0, -1)
+		end
+	end
+	if not on then
+		M.clear_inline(bufnr)
+		return false
+	end
+	if not (languages.get(ft).run or {}).watchable then
+		return false
+	end
+	local group = vim.api.nvim_create_augroup("ScratchManagerWatch" .. bufnr, { clear = true })
+	local timer = (vim.uv or vim.loop).new_timer()
+	watchers[bufnr] = { group = group, timer = timer }
+	local function trigger()
+		timer:stop()
+		timer:start(config.watch_delay or 500, 0, vim.schedule_wrap(function()
+			if M.watching(bufnr) and vim.api.nvim_buf_is_valid(bufnr) and watchable(bufnr, ft) then
+				M.run(bufnr, ft, config, { watch = true })
+			end
+		end))
+	end
+	vim.api.nvim_create_autocmd({ "TextChanged", "InsertLeave" }, { group = group, buffer = bufnr, callback = trigger })
+	vim.api.nvim_create_autocmd("BufWipeout", {
+		group = group,
+		buffer = bufnr,
+		callback = function()
+			M.watch(bufnr, ft, config, false)
+		end,
+	})
+	vim.api.nvim_buf_set_extmark(bufnr, watch_ns, 0, 0, {
+		virt_text = { { "◉ watch", "ScratchManagerDump" } },
+		virt_text_pos = "right_align",
+	})
+	if watchable(bufnr, ft) then
+		M.run(bufnr, ft, config, { watch = true })
+	end
+	return true
 end
 
 ---Snacks window key spec that runs a pad (added to the pad window's keys)
@@ -525,5 +653,10 @@ end
 
 -- Expose internal state for testing
 M._output = output
+
+-- Expose run state for testing
+M._running = function(bufnr)
+	return running[bufnr]
+end
 
 return M

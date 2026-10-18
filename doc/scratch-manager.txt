@@ -107,6 +107,7 @@ Default configuration:~
       send = "=p",                  -- Send code to the file's code pad
       pad_help = "=h",              -- Inside a pad: language-specific help
       pad_size = "=w",              -- Inside a pad: cycle ⅓ → ⅔ → nearly full
+      pad_watch = "=l",             -- Inside a C# pad: watch mode (rerun after edits)
       select = "=s",                -- Select from existing scratch buffers
       delete = "=d",                -- Delete current scratch buffer
     },
@@ -502,6 +503,14 @@ pad_help                =h              Inside a pad: help for that pad's
 pad_size                =w              Inside a pad: cycle its size, ⅓ of
                                         the screen → ⅔ → nearly full
                                         (centered); stays for the session
+pad_watch               =l              Inside a C# pad: watch mode. Reruns
+                                        `watch_delay` ms (run.cs, default
+                                        500) after an edit in normal mode or
+                                        leaving insert mode, while the pad
+                                        has a .Dump(). Quiet: the output only
+                                        opens for errors or printed output.
+                                        Off clears the values. Remembered
+                                        per pad; ◉ watch shows while on
 select                  =s              Select from existing scratch buffers
 delete                  =d              Delete current scratch buffer
 

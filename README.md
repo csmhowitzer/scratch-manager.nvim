@@ -98,6 +98,7 @@ require("scratch-manager").setup({
     send = "=p",                  -- Send the selection / function under the cursor to the code pad
     pad_help = "=h",              -- Inside a pad: language-specific help (false to disable)
     pad_size = "=w",              -- Inside a pad: cycle its size, ⅓ → ⅔ → nearly full (false to disable)
+    pad_watch = "=l",             -- Inside a C# pad: watch mode, rerun after edits (false to disable)
     select = "=s",                -- Select from existing scratch buffers
     delete = "=d",                -- Delete current scratch buffer
   },
@@ -167,6 +168,7 @@ vim.keymap.set("n", "<leader>sl", function() sm.toggle_scratch_pad("lua") end, {
 | `=p` | Send to Code Pad | Sends the selection (visual) or the function under the cursor to this file's code pad |
 | `=h` | Pad help | Inside a pad: what `<CR>` does there, keys, tips (C#, SQL, Lua, notes) |
 | `=w` | Pad size | Inside a pad: ⅓ of the screen → ⅔ → nearly full (centered); stays for the session |
+| `=l` | Watch mode | Inside a C# pad: rerun ~0.5s after each edit while it has a `.Dump()`, quietly (output only for errors/prints); remembered per pad |
 | `=s` | Select Scratch | Choose from existing scratch buffers |
 | `=d` | Delete Scratch | Delete the scratch pad (asks for confirmation; works from the pad or its source buffer) |
 

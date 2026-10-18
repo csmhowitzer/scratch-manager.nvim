@@ -438,6 +438,16 @@ M.run = {
 	desc = "Run (dotnet run)",
 	file = "scratch.cs",
 	inline = true,
+	-- Watch mode reruns only while there is a value to show
+	watchable = function(lines)
+		for _, line in ipairs(lines) do
+			local code = line:gsub("//.*$", "")
+			if code:find(".Dump(", 1, true) then
+				return true
+			end
+		end
+		return false
+	end,
 	cmd = function(config)
 		return vim.deepcopy(config.cmd or { "dotnet", "run", "-p:PublishAot=false" })
 	end,
@@ -495,6 +505,7 @@ function M.help(info, h)
 				{ "`<CR>`", "Run the whole pad" },
 				{ "`V` … `<CR>`", "Run only the selected lines" },
 				{ "`K`", "Full value of the `.Dump()` on the cursor line (hover on other lines)" },
+				{ h.key(km.pad_watch), "Watch mode on/off: rerun after each edit (see below)" },
 				{ "`q`", "Close the output (from inside it)" },
 			},
 		},
@@ -511,6 +522,10 @@ function M.help(info, h)
 			},
 		},
 		{ p = "A `.Dump()` in a loop shows every value: `(3×) 14 │ 11 │ 12`. Editing the pad clears the values until the next run." },
+		{ h = "Watch mode" },
+		{
+			p = ("With watch mode on (" .. h.key(km.pad_watch) .. ", `◉ watch` at the top right), the pad reruns about half a second after each change in normal mode or when you leave insert mode, as long as it has a `.Dump()`. Values update in place; the output only opens for errors or printed output. Turning it off clears the values. It stays on for this pad next time."),
+		},
 		{ h = "Using your project" },
 		{
 			p = ("Runs with a reference to %s, so you can use its types directly (`using YourProject.Namespace;`). The first run builds the project; later runs are fast."):format(project),

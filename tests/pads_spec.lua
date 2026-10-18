@@ -596,6 +596,60 @@ describe("scratch-manager pads", function()
     end)
   end)
 
+  describe("watch mode (=l)", function()
+    local store = require("scratch-manager.store")
+    local runner = require("scratch-manager.runner")
+
+    it("adds =l to C# pads only", function()
+      sm.setup({ enable_keymaps = false })
+      edit_source("Program.cs")
+      sm.toggle_scratch_pad()
+      assert.equals("=l", calls[1].opts.win.keys.watch[1])
+      sm.toggle_scratch_pad("markdown")
+      assert.is_nil(calls[2].opts.win.keys.watch)
+      sm.setup({ enable_keymaps = false, keymaps = { pad_watch = false } })
+      sm.toggle_scratch_pad()
+      assert.is_nil(calls[3].opts.win.keys.watch)
+    end)
+
+    it("remembers watch mode per pad and turns it back on when the pad opens again", function()
+      -- a stand-in command, and no .Dump() so nothing actually runs
+      sm.setup({ enable_keymaps = false, run = { cs = { cmd = { "true" } } } })
+      local root = vim.fn.stdpath("data") .. "/scratch"
+      assert.truthy(root:find(vim.env.SCRATCH_MANAGER_TEST_HOME, 1, true))
+      vim.fn.mkdir(root, "p")
+      local file = normalize(root .. "/watched.cs")
+      vim.fn.writefile({ "var a = 1;" }, file)
+      vim.cmd.edit(vim.fn.fnameescape(file))
+      vim.bo.filetype = "cs"
+      local buf = vim.api.nvim_get_current_buf()
+
+      assert.is_true(sm.toggle_watch(buf))
+      assert.is_true(store.get("pad_watch", file))
+      assert.truthy(notifications[#notifications].msg:find("Watch on", 1, true))
+
+      -- closed and opened again (new buffer): watch mode comes back
+      vim.cmd("bwipeout! " .. buf)
+      assert.is_false(runner.watching(buf))
+      vim.cmd.edit(vim.fn.fnameescape(file))
+      vim.bo.filetype = "cs"
+      local again = vim.api.nvim_get_current_buf()
+      assert.is_true(runner.watching(again))
+
+      assert.is_false(sm.toggle_watch(again))
+      assert.is_nil(store.get("pad_watch", file))
+    end)
+
+    it("says when a pad's language has no watch mode", function()
+      sm.setup({ enable_keymaps = false })
+      local buf = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_set_current_buf(buf)
+      vim.bo[buf].filetype = "markdown"
+      assert.is_false(sm.toggle_watch(buf))
+      assert.truthy(notifications[#notifications].msg:find("isn't available", 1, true))
+    end)
+  end)
+
   describe("autosave", function()
     -- Open a pad file under the scratch root (where snacks keeps pads) and make it unsaved
     local function edit_unsaved_pad()
