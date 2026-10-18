@@ -88,6 +88,7 @@ require("scratch-manager").setup({
   lsp = {
     detach = true,                -- Keep language servers off pads (they can't resolve pad files)
     allow = { "lua_ls" },         -- ...except these
+    mirror = true,                -- ...and servers a language supports (C#: Roslyn) via a clean mirror file
   },
   keymaps = {
     toggle = "==",                -- Toggle scratch buffer (markdown)
@@ -176,11 +177,19 @@ the rest of the session, and the output window follows it. Handy for long `.Dump
 
 ### Language servers in pads
 
-Pads are throwaway files outside any project, stored under encoded file names. Language
-servers can't make sense of them, and some crash (Roslyn does), so they're detached from
-pad buffers by default; `lsp.allow` lists servers to keep (`lua_ls` by default, for Lua pads).
-Set `lsp.detach = false` to leave all servers attached. Pad buffers carry `b:scratch_manager_pad`,
-so your own config (format-on-save, crash handlers, …) can skip them.
+Pads are throwaway files outside any project, stored under encoded file names that language
+servers can't make sense of (Roslyn crashes on them). So servers are kept off pads by default,
+with two exceptions:
+
+- **Servers a language supports** (C#: Roslyn) run in pads through a clean mirror file: the pad
+  is shown to the server as e.g. `StringExtensionsPad.cs`, so you get completion, errors as you
+  type, hover and go-to-definition, including your project's types. For that, C# pads get a
+  visible `#:project …` line for the source file's project (added for you). `.Dump()` calls
+  aren't flagged, since the helper only exists when the pad runs. `lsp.mirror = false` turns this off.
+- **`lsp.allow`** lists other servers to keep (`lua_ls` by default, for Lua pads).
+
+Set `lsp.detach = false` to leave every server attached as-is. Pad buffers carry
+`b:scratch_manager_pad`, so your own config (format-on-save, crash handlers, …) can skip them.
 
 ### Wrapping
 

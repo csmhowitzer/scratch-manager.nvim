@@ -18,6 +18,11 @@
 ---  run                                 run spec for the generic runner (ScratchManagerRunSpec)
 ---  keys(config) -> table|nil           extra snacks window keys for the pad (DB pads: run/connection)
 ---  on_open(bufnr, config)              called once when a pad of this filetype opens
+---  lsp = { servers, ext, ignore_diagnostic }
+---                                      servers that may run in pads (through a clean mirror file);
+---                                      ignore_diagnostic(d, text) hides expected diagnostics; text is
+---                                      the flagged source text (C#: hide errors on .Dump())
+---  prepare_pad(bufnr, config)          adjust a pad for its servers (C#: add the #:project line)
 ---Help and health
 ---  help(info, helpers) -> blocks       `=h` content (see help.lua for blocks and helpers)
 ---  help_info(bufnr, config) -> table   pad details merged into the help info (C#: project)
@@ -51,6 +56,8 @@ local M = {}
 ---@field run? ScratchManagerRunSpec
 ---@field keys? fun(config: table): table|nil
 ---@field on_open? fun(bufnr: number, config: table)
+---@field lsp? { servers: string[], ext?: string, ignore_diagnostic?: fun(d: table, text: string): boolean }
+---@field prepare_pad? fun(bufnr: number, config: table)
 ---@field help? fun(info: table, helpers: table): table[]
 ---@field help_info? fun(bufnr: number, config: table): table
 ---@field health? fun(report: table, config: table)

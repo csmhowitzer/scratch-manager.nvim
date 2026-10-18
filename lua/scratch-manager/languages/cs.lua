@@ -267,6 +267,39 @@ function M.compose(pad_lines, range, project, opts)
 	return compiled, usings
 end
 
+-- Language servers in pads -----------------------------------------------------------------------
+
+-- Roslyn understands single-file programs (including #:project), so it can run in pads through a
+-- clean mirror file (see scratch-manager.lsp)
+M.lsp = {
+	servers = { "roslyn" },
+	ext = "cs",
+	-- .Dump() only exists at run time (the helper is added to the compiled copy). Match on the
+	-- flagged text, not the message: a project with its own Dump extension yields different errors
+	-- (e.g. CS0411 for DictionaryExtensions.Dump<TKey, TValue>)
+	ignore_diagnostic = function(d, text)
+		return text == "Dump" or (d.message or ""):find("'Dump'", 1, true) ~= nil
+	end,
+}
+
+---Give the pad a visible #:project line for the source file's project, so Roslyn offers the
+---project's types (it reads the pad's text, not the run-time copy). Idempotent.
+---@param bufnr number
+---@param config table run.cs config
+function M.prepare_pad(bufnr, config)
+	if (config or {}).project == false or not vim.api.nvim_buf_is_valid(bufnr) then
+		return
+	end
+	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+	if has_project_directive(lines) then
+		return
+	end
+	local project = M.find_project(bufnr)
+	if project then
+		vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, { "#:project " .. project })
+	end
+end
+
 ---@type ScratchManagerRunSpec
 M.run = {
 	title = "dotnet run",
@@ -349,6 +382,10 @@ function M.help(info, h)
 		},
 		{
 			p = "Build warnings are hidden and counted in the output. Errors always show, with pad line numbers, for example `pad(7,9): error CS0029`.",
+		},
+		{ h = "Completion and errors" },
+		{
+			p = "Roslyn runs in this pad (through a clean copy of the file, since pad file names confuse it): completion, errors as you type, hover and go-to-definition, including your project's types. That's why the first line references your project (`#:project …`); it's added for you. `.Dump()` calls aren't flagged, since the helper only exists when the pad runs. Turn this off with `lsp = { mirror = false }`.",
 		},
 		{ h = "Sending code here" },
 		{

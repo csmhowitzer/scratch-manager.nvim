@@ -98,7 +98,7 @@ Default configuration:~
     enable_keymaps = true,          -- Whether to set up default keymaps
     wrap = { notes = true, code = false, db = false }, -- <M-z> toggles
     autosave = true,                -- Save pads after every change
-    lsp = { detach = true, allow = { "lua_ls" } }, -- servers on pads
+    lsp = { detach = true, allow = { "lua_ls" }, mirror = true }, -- servers on pads
     keymaps = {
       toggle = "==",                -- Toggle scratch buffer (markdown)
       toggle_lang = "=c",           -- Toggle scratch buffer (language-aware)
@@ -189,8 +189,14 @@ autosave                (boolean)
 lsp                     (table)
     Language servers on pads. Pads are files outside any project with
     encoded names; servers can't resolve them and some crash (Roslyn).
-    • detach (boolean)  Detach servers from pad buffers. Default: true
+    • detach (boolean)  Keep servers off pad buffers. Default: true
     • allow  (string[]) Servers to keep. Default: { "lua_ls" }
+    • mirror (boolean)  Let servers a language supports (C#: Roslyn) run in
+                        pads through a clean mirror file (e.g.
+                        `StringExtensionsPad.cs`): completion, diagnostics,
+                        hover, including the project's types. C# pads get a
+                        visible `#:project` line for that; `.Dump()` calls
+                        aren't flagged. Default: true
     Pad buffers have `b:scratch_manager_pad` set, so other config (format on
     save, LSP crash handlers) can skip them.
 

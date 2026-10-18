@@ -15,6 +15,7 @@ local badge = require("scratch-manager.badge")
 local runner = require("scratch-manager.runner")
 local sql = require("scratch-manager.sql")
 local languages = require("scratch-manager.languages")
+local pad_lsp = require("scratch-manager.lsp")
 local store = require("scratch-manager.store")
 
 ---@class ScratchManagerHighlights
@@ -68,7 +69,8 @@ local store = require("scratch-manager.store")
 ---@field enable_keymaps boolean Whether to set up default keymaps
 ---@field wrap boolean|{ notes: boolean, code: boolean, db: boolean } Soft-wrap long lines per pad kind, or for all (default: notes only)
 ---@field autosave boolean Save pads after every change so they never prompt to save (default: true)
----@field lsp { detach: boolean, allow: string[] } Language servers on pads: detach all but `allow` (default: detach, allow lua_ls)
+---@field lsp { detach: boolean, allow: string[], mirror: boolean } Language servers on pads: keep them off except `allow`;
+---  `mirror` lets the servers a language profile names (C#: roslyn) run in pads through a clean mirror file (default: true)
 ---@field run { cs: ScratchManagerRunConfig, sql: ScratchManagerSqlConfig } Runners for pads by filetype (Lua pads use snacks' own <CR>)
 ---@field indicator ScratchManagerIndicatorConfig Scratch pad indicator options
 
@@ -151,6 +153,7 @@ local default_config = {
 	lsp = {
 		detach = true,
 		allow = { "lua_ls" },
+		mirror = true, -- language servers that support it (C#: Roslyn) run in pads via a clean mirror file
 	},
 	run = {
 		cs = {
@@ -456,6 +459,13 @@ local function remember_source(source_bufnr)
 	vim.b[pad].scratch_manager_source = source
 	if store.get("pad_sources", pad_file) ~= source then
 		store.set("pad_sources", pad_file, source)
+	end
+	-- Now that the source is known, a mirrored pad can get its project reference (C#)
+	local mirror = require("scratch-manager.lsp").mirror(pad)
+	local lang = languages.get(vim.bo[pad].filetype)
+	if mirror and lang.prepare_pad then
+		pcall(lang.prepare_pad, pad, (get_config().run or {})[vim.bo[pad].filetype] or {})
+		require("scratch-manager.lsp").sync(pad)
 	end
 end
 
@@ -871,6 +881,8 @@ local function autosave_pad(bufnr)
 		vim.api.nvim_buf_call(bufnr, function()
 			vim.cmd("silent! noautocmd write")
 		end)
+		-- Servers that read files see the same text as the pad
+		require("scratch-manager.lsp").sync(bufnr)
 	end
 end
 
@@ -895,11 +907,40 @@ local function is_pad_buffer(bufnr)
 		and vim.startswith(vim.fs.normalize(vim.api.nvim_buf_get_name(bufnr)), scratch_root() .. "/")
 end
 
+---Pad name (e.g. "StringExtensions.cs") from a pad buffer's encoded snacks file name
+---@param bufnr number
+---@return string|nil
+local function pad_name_of(bufnr)
+	local ok, decoded = pcall(function()
+		return get_snacks().util.file_decode(vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":t"))
+	end)
+	return ok and type(decoded) == "string" and decoded:match("Scratch Pad %((.-)%)") or nil
+end
+
+---Mirror a pad for language servers (when its language supports it) and let its profile prepare it
+---@param bufnr number
+---@return boolean mirrored
+local function mirror_pad(bufnr)
+	if pad_lsp.mirror(bufnr) then
+		return true
+	end
+	if not pad_lsp.enable(bufnr, pad_name_of(bufnr)) then
+		return false
+	end
+	local ft = vim.bo[bufnr].filetype
+	local lang = languages.get(ft)
+	if lang.prepare_pad then
+		pcall(lang.prepare_pad, bufnr, (get_config().run or {})[ft] or {})
+		pad_lsp.sync(bufnr)
+	end
+	return true
+end
+
 -- Language servers on pads (see the `lsp` option). Detaching after attach is too late: the server
 -- has already been sent the pad (and Roslyn crashes on the next change to it), so attaching is
 -- declined up front. vim.lsp.start attaches every buffer through vim.lsp.buf_attach_client, for
 -- new and reused clients, so that's where pads are turned away.
-local lsp_block, lsp_allow = false, {}
+local lsp_block, lsp_allow, lsp_mirror = false, {}, true
 
 ---Should this server be kept off this buffer?
 ---@param bufnr number
@@ -918,6 +959,12 @@ local function block_lsp(bufnr, client_id)
 		return false
 	end
 	vim.b[bufnr].scratch_manager_pad = true
+	-- Servers the pad's language supports run through a clean mirror file (set up right here, so it
+	-- doesn't matter which plugin's FileType autocmd ran first)
+	if client and lsp_mirror and mirror_pad(bufnr) and pad_lsp.allows(bufnr, client.name) then
+		pad_lsp.watch_client(client)
+		return false
+	end
 	return true
 end
 
@@ -965,6 +1012,7 @@ local function setup_autosave()
 		lsp_allow[name] = true
 	end
 	lsp_block = lsp.detach ~= false
+	lsp_mirror = lsp.mirror ~= false
 	install_lsp_guard(lsp_block)
 	if lsp_block then
 		-- Fallback for servers attached some other way: detach as soon as they attach
@@ -972,7 +1020,8 @@ local function setup_autosave()
 			group = group,
 			callback = function(args)
 				local client = vim.lsp.get_client_by_id(args.data.client_id)
-				if client and not lsp_allow[client.name] and is_pad_buffer(args.buf) then
+				local mirrored = client and lsp_mirror and pad_lsp.allows(args.buf, client.name)
+				if client and not lsp_allow[client.name] and not mirrored and is_pad_buffer(args.buf) then
 					vim.schedule(function()
 						if vim.api.nvim_buf_is_valid(args.buf) and vim.lsp.buf_is_attached(args.buf, client.id) then
 							vim.lsp.buf_detach_client(args.buf, client.id)
