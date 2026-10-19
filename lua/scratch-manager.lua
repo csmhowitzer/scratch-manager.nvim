@@ -17,6 +17,7 @@ local sql = require("scratch-manager.sql")
 local languages = require("scratch-manager.languages")
 local pad_lsp = require("scratch-manager.lsp")
 local store = require("scratch-manager.store")
+local context = require("scratch-manager.context")
 
 ---@class ScratchManagerHighlights
 ---@field border table|nil Select list floating window border highlight
@@ -272,22 +273,13 @@ end
 -- the screen on the right, 3 = nearly the full width (centered, with margins so it still reads as a popup)
 local pad_size = 1
 
--- Defined below (needs the pad matching helpers): pad counts per kind for a source file
-local count_pad_kinds
-
----How many badges there will be with this pad open: the source file's pad kinds, plus the kind
----being opened. From inside a pad (`=w`), the pad's source file counts. Counted from the scratch
----directory, not the per-buffer cache, which may not be filled yet (e.g. right after startup)
+---How many badges there will be with this pad open: the current set's kinds plus the kind being
+---opened (see context.lua; inside a pad, `=w`, its own set)
 ---@param ft string|nil Filetype of the pad being opened or resized
 ---@return number
 local function badge_count(ft)
-	local bufnr = vim.api.nvim_get_current_buf()
-	local source = vim.api.nvim_buf_get_name(bufnr)
-	if vim.b[bufnr].scratch_manager_pad and vim.b[bufnr].scratch_manager_source then
-		source = vim.b[bufnr].scratch_manager_source
-		ft = ft or vim.bo[bufnr].filetype
-	end
-	local kinds = count_pad_kinds(source)
+	local ctx = context.current()
+	local kinds = vim.deepcopy(ctx.kinds)
 	if ft then
 		local kind = pad_kind(ft)
 		kinds[kind] = math.max(kinds[kind] or 0, 1)
@@ -659,6 +651,14 @@ end
 ---@param buffers table List of existing scratch buffers from snacks.nvim
 ---@param config ScratchPadConfig Current buffer configuration (`branch` and `match_ft` narrow the match)
 ---@return table[] pads Matching scratch items
+-- How context.switch opens pads: the pad window options, remembering the file it was opened for
+context.opener = function(item, ctx)
+	M.open_scratch({ file = item.file, fmtName = item.name, ft = item.ft, icon = item.icon })
+	if ctx.source then
+		remember_source(ctx.source.buf)
+	end
+end
+
 function M.find_scratch_pads(buffers, config)
 	assert(config.path, "no path provided")
 	assert(config.name, "no filename provided")
@@ -676,126 +676,6 @@ end
 ---@param buffers table List of existing scratch buffers from snacks.nvim
 ---@param config ScratchPadConfig Current buffer configuration
 ---@return table|nil Existing scratch buffer info or nil if not found
----Pad counts per kind for a source file, from the scratch directory
----@param source string|nil Source file path
----@return { notes: number, code: number, db: number }
-count_pad_kinds = function(source)
-	local kinds = { notes = 0, code = 0, db = 0 }
-	if not source or source == "" or vim.startswith(vim.fs.normalize(source), scratch_root() .. "/") then
-		return kinds
-	end
-	local ok, buffers = pcall(function()
-		return get_snacks().scratch.list()
-	end)
-	if not ok or type(buffers) ~= "table" then
-		return kinds
-	end
-	local cwd = vim.fs.normalize((vim.uv or vim.loop).cwd())
-	local config = {
-		name = vim.fn.fnamemodify(source, ":t"),
-		path = vim.fn.fnamemodify(cwd, ":p:~"),
-		branch = utils.get_git_branch(cwd),
-	}
-	for _, item in ipairs(M.find_scratch_pads(buffers, config)) do
-		local kind = pad_kind(item.ft)
-		kinds[kind] = kinds[kind] + 1
-	end
-	return kinds
-end
-
----Pads that belong with an open pad (same source file name, directory and branch as recorded when
----the pad was created), so a later `:cd` doesn't separate them. nil when the pad isn't listed yet.
----@param bufnr number Pad buffer
----@return table[]|nil items
-local function pad_siblings(bufnr)
-	local ok, buffers = pcall(function()
-		return get_snacks().scratch.list()
-	end)
-	if not ok or type(buffers) ~= "table" then
-		return nil
-	end
-	local own = pad_for_buffer(buffers, bufnr)
-	if not (own and own.cwd) then
-		return nil
-	end
-	return vim.tbl_filter(function(item)
-		return item.name == own.name and item.cwd == own.cwd and (item.branch or "") == (own.branch or "")
-	end, buffers)
-end
-
----Pad counts per kind for an open pad's siblings (itself included, even before its first save)
----@param bufnr number Pad buffer
----@param source string|nil Its source file, used when the pad isn't listed yet
----@return { notes: number, code: number, db: number }
-local function count_sibling_kinds(bufnr, source)
-	local siblings = pad_siblings(bufnr)
-	local kinds = siblings and { notes = 0, code = 0, db = 0 } or count_pad_kinds(source)
-	for _, item in ipairs(siblings or {}) do
-		local kind = pad_kind(item.ft)
-		kinds[kind] = kinds[kind] + 1
-	end
-	local own = pad_kind(vim.bo[bufnr].filetype)
-	kinds[own] = math.max(kinds[own] or 0, 1)
-	return kinds
-end
-
--- The editor (non-floating) window used last: the "current source" behind any open pad
-local last_editor_win
-
----The editor window behind the pads: the last one used in this tab, else the first one
----@return number|nil win
-local function context_window()
-	if last_editor_win and vim.api.nvim_win_is_valid(last_editor_win)
-		and vim.api.nvim_win_get_config(last_editor_win).relative == ""
-		and vim.api.nvim_win_get_tabpage(last_editor_win) == vim.api.nvim_get_current_tabpage() then
-		return last_editor_win
-	end
-	for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-		if vim.api.nvim_win_get_config(win).relative == "" then
-			return win
-		end
-	end
-	return nil
-end
-
----The current source: the file in the editor window behind the pads (nil when that isn't a file)
----@return number|nil bufnr
----@return string|nil name
-local function context_source()
-	local win = context_window()
-	if not win then
-		return nil, nil
-	end
-	local buf = vim.api.nvim_win_get_buf(win)
-	local name = vim.api.nvim_buf_get_name(buf)
-	if name == "" or vim.bo[buf].buftype ~= "" or vim.startswith(vim.fs.normalize(name), scratch_root() .. "/") then
-		return nil, nil
-	end
-	return buf, name
-end
-
----Does this pad belong to the current source, or is it another file's pad (opened from the `=s`
----list)? Without a current source, every pad counts as its own.
----@param pad_buf number
----@param source_name string|nil Current source file
----@return boolean
-local function is_own_pad(pad_buf, source_name)
-	if not source_name then
-		return true
-	end
-	local recorded = vim.b[pad_buf].scratch_manager_source
-		or store.get("pad_sources", vim.fs.normalize(vim.api.nvim_buf_get_name(pad_buf)))
-	if recorded and recorded ~= "" then
-		return vim.fs.normalize(recorded) == vim.fs.normalize(source_name)
-	end
-	-- Pads from before sources were recorded: by file name
-	local ok, buffers = pcall(function()
-		return get_snacks().scratch.list()
-	end)
-	local item = ok and type(buffers) == "table" and pad_for_buffer(buffers, pad_buf) or nil
-	return item ~= nil and get_scratch_filename(item.name) == vim.fn.fnamemodify(source_name, ":t")
-end
-
 function M.find_existing_scratch_pad(buffers, config)
 	local item = M.find_scratch_pads(buffers, config)[1]
 	if not item then
@@ -822,6 +702,9 @@ local function delete_pad_file(file, ft)
 	file = vim.fs.normalize(file)
 	local bufnr = vim.fn.bufnr(file)
 	local mirror = bufnr > 0 and pad_lsp.mirror(bufnr) or nil
+	-- Close its windows first: wiping a buffer shown in a float can leave another buffer in that
+	-- window, unmanaged and impossible to close with the pad keys (rule 8)
+	context.close_windows(bufnr)
 	if bufnr > 0 and vim.api.nvim_buf_is_valid(bufnr) then
 		pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
 	end
@@ -853,15 +736,18 @@ end
 ---Works from inside a scratch pad (deletes that pad) or from its source buffer (deletes
 ---the pad for this file on the current branch; asks which one if there are several).
 function M.delete_current_scratch_pad()
-	local buffers = get_snacks().scratch.list()
 	local bufnr = vim.api.nvim_get_current_buf()
 
+	-- Inside a pad: that pad. In a file: the current set's pads (context.lua)
 	local pads
-	local own_pad = pad_for_buffer(buffers, bufnr)
-	if own_pad then
-		pads = { own_pad }
+	if context.is_pad(bufnr) then
+		pads = { context.item_for(context.list(), bufnr) or pad_for_buffer({}, bufnr) }
 	else
-		pads = M.find_scratch_pads(buffers, get_buffer_config(bufnr))
+		local ctx = context.resolve()
+		pads = {}
+		for _, kind in ipairs(KINDS) do
+			vim.list_extend(pads, ctx.pads[kind])
+		end
 	end
 
 	if #pads == 0 then
@@ -892,90 +778,14 @@ function M.delete_current_scratch_pad()
 	end
 end
 
----Toggle scratch buffer with optional filetype
----@param file_type string|nil Optional filetype to use for new scratch buffer
+---Toggle a pad of a kind for the current file: `==` (markdown: notes), `=c` (nil: the file's language),
+---`=q` (sql: db). The rules live in context.switch (current set, own vs visiting pads)
+---@param file_type string|nil
 function M.toggle_scratch_pad(file_type)
-	local buffers = get_snacks().scratch.list()
-	local bufnr = vim.api.nvim_get_current_buf()
-
-	-- From inside a pad: the key of its own kind closes it; another kind's key flips to that pad
-	-- (opening or creating it) for the same source file
-	local own_pad = pad_for_buffer(buffers, bufnr)
-	if own_pad then
-		-- Visiting another file's pad (from the =s list): every key means the current source's pad
-		-- of that kind, opened or created for the current source
-		local context_buf, context_name = context_source()
-		local context_win = context_window()
-		if context_name and context_win and context_buf ~= bufnr and not is_own_pad(bufnr, context_name) then
-			M.open_scratch(own_pad) -- closes it
-			vim.api.nvim_set_current_win(context_win)
-			return M.toggle_scratch_pad(file_type)
-		end
-		local wanted = file_type and pad_kind(file_type) or "code"
-		local source = vim.b[bufnr].scratch_manager_source
-			or store.get("pad_sources", vim.fs.normalize(vim.api.nvim_buf_get_name(bufnr)))
-		local siblings = pad_siblings(bufnr)
-		M.open_scratch(own_pad) -- closes it
-		if wanted == pad_kind(own_pad.ft) or not source or source == "" then
-			return
-		end
-		-- Back to the source file: its window if one shows it, else the first regular window
-		local source_buf = vim.fn.bufnr(source)
-		local target
-		for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-			if vim.api.nvim_win_get_config(win).relative == "" then
-				if vim.api.nvim_win_get_buf(win) == source_buf then
-					target = win
-					break
-				end
-				target = target or win
-			end
-		end
-		if not target then
-			return
-		end
-		vim.api.nvim_set_current_win(target)
-		if vim.api.nvim_win_get_buf(target) ~= source_buf then
-			vim.cmd.edit(vim.fn.fnameescape(source))
-		end
-		source_buf = vim.api.nvim_get_current_buf()
-		-- The other pad belongs with this one: same name, directory and branch as recorded for this pad,
-		-- whatever `:pwd` is now
-		if siblings and own_pad.cwd then
-			local ft = file_type or vim.filetype.match({ filename = source }) or get_config().default_filetype
-			for _, item in ipairs(siblings) do
-				if item.ft == ft then
-					M.open_scratch(item)
-					remember_source(source_buf)
-					return
-				end
-			end
-			-- Not there yet: create it under the same key snacks would use (count|icon|name|cwd|branch)
-			local key = table.concat({ "1", "", (own_pad.name:gsub("|", " ")), vim.fs.normalize(own_pad.cwd), own_pad.branch or "" }, "|")
-			M.open_scratch({
-				file = scratch_root() .. "/" .. get_snacks().util.file_encode(key .. "." .. ft),
-				fmtName = own_pad.name,
-				ft = ft,
-			})
-			remember_source(source_buf)
-			return
-		end
-		return M.toggle_scratch_pad(file_type)
+	local kind = file_type and pad_kind(file_type) or "code"
+	if context.switch(kind, file_type) == "none" then
+		vim.notify("Pads belong to a file: open one first", vim.log.levels.INFO)
 	end
-
-	local config = get_buffer_config(bufnr, file_type)
-	config.match_ft = true
-
-	local existing_pad = M.find_existing_scratch_pad(buffers, config)
-	if existing_pad then
-		config.fmtName = existing_pad.name
-		config.file = existing_pad.file
-		config.icon = existing_pad.icon
-		M.open_scratch(config)
-	else
-		M.open_new_scratch_pad(config)
-	end
-	remember_source(bufnr)
 end
 
 ---Badge/statusline text for one pad kind: its icon, plus the count when there are several
@@ -1021,14 +831,14 @@ local function pad_list(show_all)
 	if not ok or type(buffers) ~= "table" then
 		return {}, 0
 	end
-	local context_buf = context_source()
+	local ctx = context.resolve()
 	local mine = {}
-	if context_buf then
-		for _, item in ipairs(M.find_scratch_pads(buffers, get_buffer_config(context_buf))) do
+	for _, kind in ipairs(KINDS) do
+		for _, item in ipairs(ctx.pads[kind]) do
 			mine[item.file] = true
 		end
 	end
-	local cwd = vim.fs.normalize((vim.uv or vim.loop).cwd())
+	local cwd = ctx.set and ctx.set.cwd or vim.fs.normalize((vim.uv or vim.loop).cwd()) -- this project (context.lua)
 	local sources = store.read("pad_sources")
 	local branches = {}
 	local items, hidden = {}, 0
@@ -1138,7 +948,7 @@ custom_scratch_select = function(state)
 						return
 					end
 					selection.close()
-					local win = context_window()
+					local win = context.editor_window()
 					if win then
 						vim.api.nvim_set_current_win(win)
 					end
@@ -1158,36 +968,34 @@ custom_scratch_select = function(state)
 		},
 	}, function(selected_item)
 		if selected_item then
+			-- One pad at a time (rule 2); the pad keeps its own source and set (rule 9)
+			local open_win = context.open_window()
+			if open_win then
+				pcall(vim.api.nvim_win_close, open_win, false)
+			end
+			local win = context.editor_window()
+			if win then
+				vim.api.nvim_set_current_win(win)
+			end
 			M.open_scratch(selected_item)
 		end
 	end, get_config())
 end
 
----Pad counts per kind for the current buffer (cached by refresh_indicator)
+-- Pad counts of the current set as of the last indicator refresh (refresh_indicator runs on
+-- BufEnter, WinClosed, DirChanged, ...): status() reads this instead of resolving on every redraw
+local last_kinds = { notes = 0, code = 0, db = 0 }
+
+---Pad counts per kind of the current set, as of the last refresh (cheap)
 ---@return { notes: number, code: number, db: number }
 local function current_kinds()
-	local kinds = vim.b.scratch_manager_pad_kinds
-	-- Stacked badges stay visible next to an open pad: inside a pad, show its source file's pads
-	if (get_config().indicator or {}).layout == "column" then
-		local name = vim.fs.normalize(vim.api.nvim_buf_get_name(0))
-		if name ~= "" and vim.startswith(name, scratch_root() .. "/") then
-			local current = vim.api.nvim_get_current_buf()
-			local _, context_name = context_source()
-			if context_name and not is_own_pad(current, context_name) then
-				kinds = count_pad_kinds(context_name) -- visiting another file's pad: the current source's pads
-			else
-				local source = vim.b.scratch_manager_source or store.get("pad_sources", name)
-				kinds = count_sibling_kinds(current, source)
-			end
-		end
-	end
-	return type(kinds) == "table" and kinds or { notes = 0, code = 0, db = 0 }
+	return last_kinds
 end
 
 ---Show, move or hide the floating badges for the current buffer
 ---Notes sits in the corner, then code, then db to the left; each only when that kind of pad exists
 ---@private
-local function update_badge()
+local function update_badge(ctx)
 	local indicator = get_config().indicator or {}
 	if not indicator.float or indicator.enabled == false then
 		badge.hide()
@@ -1198,16 +1006,36 @@ local function update_badge()
 	if badge.is_badge_win() or badge.is_animating() then
 		return
 	end
-	local kinds = current_kinds()
+	ctx = ctx or context.resolve()
+	local kinds = ctx.kinds
 	local column = indicator.layout == "column"
 	local right = vim.o.columns - 1 -- one cell of margin from the editor edge
 	-- Stacked badges start level with the pads' top border
 	local row = column and math.max(badge.tabline_height(), get_window_options().row) or badge.tabline_height()
+
+	-- The open pad, if any (badges are drawn above pads, so none may sit on it)
+	local pad_win = ctx.open and ctx.open.win or nil
+	---Would a badge at this position cover part of the open pad? (A single badge gets no room: the
+	---pad takes the full width, so it is hidden while the pad is open.)
+	local function covers_pad(col, width, top)
+		if not pad_win then
+			return false
+		end
+		local cfg = vim.api.nvim_win_get_config(pad_win)
+		local function num(v)
+			return type(v) == "table" and v[false] or v
+		end
+		local pad_col, pad_row = num(cfg.col) or 0, num(cfg.row) or 0
+		local cols = col <= pad_col + cfg.width + 1 and col + width + 1 >= pad_col
+		local rows = top <= pad_row + cfg.height + 1 and top + 2 >= pad_row
+		return cols and rows
+	end
+
 	for _, kind in ipairs(KINDS) do
 		local count = kinds[kind] or 0
-		if count > 0 then
-			local text = kind_text(kind, count)
-			local col = right - (badge.width(text) + 2) -- + 2 border cells
+		local text = count > 0 and kind_text(kind, count) or nil
+		local col = text and right - (badge.width(text) + 2) or nil -- + 2 border cells
+		if text and not covers_pad(col, badge.width(text), row) then
 			badge.show(kind, text, col, border_hl(kind), function()
 				M.open_pad_from_badge(kind)
 			end, { transparent = indicator.transparent, row = row })
@@ -1221,21 +1049,9 @@ local function update_badge()
 		end
 	end
 	-- Stacked badges: join the open pad's border to its badge, marking it as the selected one
-	-- (the connector window is moved, not reopened)
-	if column then
-		for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-			local buf = vim.api.nvim_win_get_buf(win)
-			local name = vim.fs.normalize(vim.api.nvim_buf_get_name(buf))
-			if vim.api.nvim_win_get_config(win).relative ~= "" and name ~= ""
-				and vim.startswith(name, scratch_root() .. "/") then
-				local _, context_name = context_source()
-				if not is_own_pad(buf, context_name) then
-					break -- another file's pad: none of these badges is its own
-				end
-				local kind = pad_kind(vim.bo[buf].filetype)
-				return badge.connect(kind, win, border_hl(kind))
-			end
-		end
+	-- (the connector window is moved, not reopened; nothing to join when that badge is hidden)
+	if column and ctx.open and ctx.open.own and badge.get_win(ctx.open.kind) then
+		return badge.connect(ctx.open.kind, ctx.open.win, border_hl(ctx.open.kind))
 	end
 	badge.disconnect()
 end
@@ -1243,29 +1059,22 @@ end
 ---Recompute whether a buffer has scratch pads and cache it in `vim.b.scratch_manager_pads`
 ---@param bufnr number|nil Buffer number (defaults to the current buffer)
 function M.refresh_indicator(bufnr)
-	bufnr = bufnr or vim.api.nvim_get_current_buf()
-	if not vim.api.nvim_buf_is_valid(bufnr) then
-		return
-	end
-
-	local kinds = { notes = 0, code = 0, db = 0 }
-	if vim.bo[bufnr].buftype == "" and vim.api.nvim_buf_get_name(bufnr) ~= "" then
-		local buffers = get_snacks().scratch.list()
-		if not pad_for_buffer(buffers, bufnr) then
-			for _, item in ipairs(M.find_scratch_pads(buffers, get_buffer_config(bufnr))) do
-				local kind = pad_kind(item.ft)
-				kinds[kind] = kinds[kind] + 1
-			end
-		end
-	end
+	local ctx = context.resolve()
+	local kinds = ctx.kinds
+	last_kinds = kinds
 	local count = kinds.notes + kinds.code + kinds.db
-	vim.b[bufnr].scratch_manager_pads = count
-	vim.b[bufnr].scratch_manager_pad_kinds = kinds
-	update_badge()
+	-- Kept on the source buffer for statuslines that read it (zero on other buffers)
+	local source = ctx.source and ctx.source.buf or bufnr or vim.api.nvim_get_current_buf()
+	if source and vim.api.nvim_buf_is_valid(source) and not context.is_pad(source) then
+		vim.b[source].scratch_manager_pads = count
+		vim.b[source].scratch_manager_pad_kinds = kinds
+	end
+	update_badge(ctx)
 
 	local indicator = get_config().indicator or {}
-	if indicator.notify and count > 0 and not vim.b[bufnr].scratch_manager_notified then
-		vim.b[bufnr].scratch_manager_notified = true
+	if indicator.notify and count > 0 and source and vim.api.nvim_buf_is_valid(source)
+		and not vim.b[source].scratch_manager_notified then
+		vim.b[source].scratch_manager_notified = true
 		local keys = get_config().keymaps or {}
 		vim.notify(
 			("Scratch pad available (%s to open)"):format(keys.toggle_lang or "toggle"),
@@ -1275,95 +1084,58 @@ function M.refresh_indicator(bufnr)
 	end
 end
 
----Pads of the current buffer, optionally only one kind
+---Open the current set's pad of a kind (as `==` / `=c` / `=q` would); without a kind, ask which
 ---@param kind "notes"|"code"|"db"|nil
----@return table[]
-local function current_pads(kind)
-	local buffers = get_snacks().scratch.list()
-	local pads = M.find_scratch_pads(buffers, get_buffer_config(vim.api.nvim_get_current_buf()))
-	if kind then
-		pads = vim.tbl_filter(function(item)
-			return pad_kind(item.ft) == kind
-		end, pads)
-	end
-	return pads
-end
-
----Open the existing scratch pad for the current buffer, asking which one if there are several
----@param kind "notes"|"code"|"db"|nil Only consider one kind of pad
 function M.open_pad(kind)
-	local source = vim.api.nvim_get_current_buf()
-	local pads = current_pads(kind)
+	if kind then
+		return context.switch(kind)
+	end
+	local ctx = context.resolve()
+	local pads = {}
+	for _, k in ipairs(KINDS) do
+		vim.list_extend(pads, ctx.pads[k])
+	end
 	if #pads == 0 then
 		vim.notify("No scratch pad found for this buffer", vim.log.levels.INFO)
-	elseif #pads == 1 then
-		M.open_scratch(pads[1])
-		remember_source(source)
-	else
-		vim.ui.select(pads, {
-			prompt = "Open which scratch pad?",
-			format_item = function(item)
-				return ("%s (%s)"):format(get_scratch_filename(item.name), item.ft)
-			end,
-		}, function(item)
-			if item then
-				M.open_scratch(item)
-				remember_source(source)
-			end
-		end)
+		return
 	end
+	vim.ui.select(pads, {
+		prompt = "Open which scratch pad?",
+		format_item = function(item)
+			return ("%s (%s)"):format(get_scratch_filename(item.name), item.ft)
+		end,
+	}, function(item)
+		if item then
+			context.switch(pad_kind(item.ft), item.ft)
+		end
+	end)
 end
 
----Click handler for a floating badge: return to the source window and open that kind of pad
----@param kind "notes"|"code"|"db"|nil
+---Click handler for a floating badge: the same as that kind's key (context.switch)
+---@param kind "notes"|"code"|"db"
 ---@private
 function M.open_pad_from_badge(kind)
-	local target = vim.fn.win_getid(vim.fn.winnr("#"))
-	if target == 0 or badge.is_badge_win(target) or not vim.api.nvim_win_is_valid(target) then
-		-- Fall back to the first normal (non-floating) window
-		for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-			if vim.api.nvim_win_get_config(win).relative == "" then
-				target = win
+	local ctx = context.resolve()
+	if not kind then
+		for _, k in ipairs(KINDS) do
+			if ctx.kinds[k] > 0 then
+				kind = k
 				break
 			end
 		end
+		kind = kind or "notes"
 	end
-	-- Clicked while a pad is open (stacked badges stay visible): close it; its own badge just
-	-- closes it, another kind's badge opens that pad for the same source file instead
-	local shown_buf = vim.api.nvim_win_get_buf(target)
-	local shown = vim.fs.normalize(vim.api.nvim_buf_get_name(shown_buf))
-	if shown ~= "" and vim.startswith(shown, scratch_root() .. "/") then
-		local open_kind = pad_kind(vim.bo[shown_buf].filetype)
-		local _, context_name = context_source()
-		local own = is_own_pad(shown_buf, context_name)
-		pcall(vim.api.nvim_win_close, target, false)
-		target = context_window()
-		-- Its own badge closes the current source's pad; from another file's pad, every badge opens
-		-- the current source's pad of that kind
-		if not target or (open_kind == kind and own) then
-			if target then
-				vim.api.nvim_set_current_win(target)
-			end
-			return
-		end
-	end
-	vim.api.nvim_set_current_win(target)
-
 	local indicator = get_config().indicator or {}
-	if indicator.animate then
-		local pads = current_pads(kind)
-		if #pads == 1 then
-			local grow_kind = kind or pad_kind(pads[1].ft)
-			local source = vim.api.nvim_get_current_buf()
-			-- Same geometry the pad opens with (its filetype decides whether badges need room)
-			badge.grow(grow_kind, get_window_options(nil, nil, pads[1].ft), border_hl(pad_kind(pads[1].ft)), function()
-				M.open_scratch(pads[1])
-				remember_source(source)
-			end)
-			return
-		end
+	local item = ctx.source and not ctx.open and context.pad_of(ctx, kind) or nil
+	if indicator.animate and item then
+		vim.api.nvim_set_current_win(ctx.source.win)
+		-- Same geometry the pad opens with (its filetype decides whether badges need room)
+		badge.grow(kind, get_window_options(nil, nil, item.ft), border_hl(kind), function()
+			context.switch(kind)
+		end)
+		return
 	end
-	M.open_pad(kind)
+	context.switch(kind)
 end
 
 ---Save a pad buffer if it has unsaved changes. noautocmd: no format-on-save or other write hooks
@@ -1728,14 +1500,13 @@ function M.send_to_pad(range)
 	config.match_ft = true
 	local block, imports = send.build(src, target, config.ft)
 
-	-- Focus the code pad if it's already on screen, otherwise open it
-	local existing = M.find_existing_scratch_pad(get_snacks().scratch.list(), config)
-	local pad_win = existing and vim.fn.bufwinid(vim.fn.bufnr(existing.file)) or -1
-	if pad_win ~= -1 then
-		vim.api.nvim_set_current_win(pad_win)
+	-- Focus the current set's code pad if it's on screen, otherwise open (or create) it
+	local ctx = context.resolve()
+	if ctx.open and ctx.open.own and ctx.open.kind == "code" then
+		vim.api.nvim_set_current_win(ctx.open.win)
 		remember_source(src)
 	else
-		M.toggle_scratch_pad()
+		context.switch("code", config.ft)
 	end
 	local pad = vim.api.nvim_get_current_buf()
 	if pad == src then
@@ -1899,19 +1670,15 @@ function M.setup(opts)
 		end
 	end
 
-	-- Track the editor window used last: the current source behind any open pad
-	if vim.api.nvim_win_get_config(0).relative == "" then
-		last_editor_win = vim.api.nvim_get_current_win()
-	end
-	vim.api.nvim_create_autocmd("WinEnter", {
+	-- Track the editor window used last: the source behind any open pad (context.lua)
+	context.track(vim.api.nvim_get_current_win())
+	vim.api.nvim_create_autocmd({ "WinEnter", "BufEnter" }, {
 		group = vim.api.nvim_create_augroup("ScratchManagerContext", { clear = true }),
 		callback = function()
-			local win = vim.api.nvim_get_current_win()
-			if vim.api.nvim_win_get_config(win).relative == "" then
-				last_editor_win = win
-			end
+			context.track(vim.api.nvim_get_current_win())
 		end,
 	})
+
 
 	setup_indicator()
 	setup_autosave()

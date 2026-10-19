@@ -53,11 +53,17 @@ describe("scratch-manager pads", function()
   end
 
   -- Build a snacks-style scratch item, optionally backed by a real file
+  -- Pads live under the scratch root, like real ones (that's how pads are told apart from files)
+  local pad_count = 0
+  local made_pads = {}
   local function pad(name, ft, opts)
     opts = opts or {}
-    local file = tmp .. "/scratch/" .. name .. "." .. ft .. (opts.suffix or "")
+    pad_count = pad_count + 1
+    local root = vim.fn.stdpath("data") .. "/scratch"
+    local file = root .. "/" .. pad_count .. "_" .. name .. "." .. ft .. (opts.suffix or "")
+    table.insert(made_pads, file)
     if opts.create ~= false then
-      vim.fn.mkdir(tmp .. "/scratch", "p")
+      vim.fn.mkdir(root, "p")
       vim.fn.writefile({ "note" }, file)
     end
     return {
@@ -67,6 +73,18 @@ describe("scratch-manager pads", function()
       ft = ft,
       file = file,
     }
+  end
+
+  -- Show a pad the way snacks does: in a float, remembering the file it was opened for
+  local function show_pad(item, source_buf)
+    local buf = vim.fn.bufadd(item.file)
+    vim.fn.bufload(buf)
+    vim.bo[buf].filetype = item.ft
+    if source_buf then
+      vim.b[buf].scratch_manager_source = vim.api.nvim_buf_get_name(source_buf)
+    end
+    local win = vim.api.nvim_open_win(buf, true, { relative = "editor", row = 1, col = 1, width = 30, height = 5, border = "rounded" })
+    return win, buf
   end
 
   local function set_branch(branch)
@@ -97,6 +115,16 @@ describe("scratch-manager pads", function()
     vim.fn.chdir(original_cwd)
     vim.cmd("silent! %bwipeout!")
     vim.fn.delete(tmp, "rf")
+    -- this test's pads and what's remembered for them must not leak into the next test (only
+    -- these files: other spec files run at the same time in the same test home)
+    local store = require("scratch-manager.store")
+    for _, file in ipairs(made_pads) do
+      vim.fn.delete(file)
+      if store.get("pad_sources", vim.fs.normalize(file)) ~= nil then
+        store.set("pad_sources", vim.fs.normalize(file), nil)
+      end
+    end
+    made_pads = {}
   end)
 
   describe("before setup", function()
@@ -105,7 +133,8 @@ describe("scratch-manager pads", function()
       assert.has_no.errors(function()
         sm.toggle_scratch_pad()
       end)
-      assert.equals("new", calls[1].kind)
+      assert.equals("open", calls[1].kind)
+      assert.equals("lua", calls[1].opts.ft)
     end)
 
     it("status returns an empty string", function()
@@ -175,8 +204,12 @@ describe("scratch-manager pads", function()
       list_items = { pad("bar.lua", "lua") }
       edit_source("src/bar.lua")
       sm.toggle_scratch_pad("markdown")
-      assert.equals("new", calls[1].kind)
+      -- created under the key snacks itself would use: count|icon|name|cwd|branch
+      assert.equals("open", calls[1].kind)
       assert.equals("markdown", calls[1].opts.ft)
+      assert.equals("Scratch Pad (bar.lua)", calls[1].opts.name)
+      local key = require("snacks").util.file_encode("1||Scratch Pad (bar.lua)|" .. normalize(vim.fn.getcwd()) .. "|" .. ".markdown")
+      assert.equals(vim.fn.stdpath("data") .. "/scratch/" .. key, calls[1].opts.file)
     end)
 
     it("applies a language's window options to its pads (C#: conceal for the #:project path)", function()
@@ -274,15 +307,16 @@ describe("scratch-manager pads", function()
       vim.api.nvim_win_close(win, true)
     end)
 
-    it("closes the pad when toggled from inside it", function()
+    it("closes the pad when toggled from inside it, back to the file", function()
       local lua_pad = pad("bar.lua", "lua")
       list_items = { lua_pad }
-      vim.cmd.edit(vim.fn.fnameescape(lua_pad.file))
+      local source = edit_source("bar.lua")
+      local win = show_pad(lua_pad, source)
 
       sm.toggle_scratch_pad()
-      assert.equals(1, #calls)
-      assert.equals("open", calls[1].kind)
-      assert.equals(lua_pad.file, calls[1].opts.file)
+      assert.is_false(vim.api.nvim_win_is_valid(win))
+      assert.equals(0, #calls) -- nothing else opened
+      assert.equals(source, vim.api.nvim_get_current_buf())
     end)
   end)
 
@@ -313,140 +347,183 @@ describe("scratch-manager pads", function()
     end)
   end)
 
-  describe("flipping between pads", function()
-    it("opens another kind of pad for the same source from inside a pad (==, =c, =q)", function()
-      sm.setup({ enable_keymaps = false })
-      local source = edit_source("bar.lua")
-      local source_name = vim.api.nvim_buf_get_name(source)
-      local lua_pad, md_pad = pad("bar.lua", "lua"), pad("bar.lua", "markdown")
-      list_items = { lua_pad, md_pad }
-      vim.cmd.edit(vim.fn.fnameescape(lua_pad.file))
-      vim.b.scratch_manager_source = source_name
+  -- The pad rules (PAD_RULES.md in the dev notes); every path goes through context.lua
+  describe("pad rules", function()
+    local badge = require("scratch-manager.badge")
 
-      sm.toggle_scratch_pad("markdown") -- == inside the code pad
-      assert.equals(2, #calls)
-      assert.equals(lua_pad.file, calls[1].opts.file) -- the code pad is closed (snacks toggles it)
-      assert.equals(md_pad.file, calls[2].opts.file) -- and the notes pad opened
-      assert.equals(source, vim.api.nvim_get_current_buf()) -- opened from the source file
-
-      -- no DB pad yet: =q creates one with the same key as these pads (their directory and branch)
-      vim.cmd.edit(vim.fn.fnameescape(md_pad.file))
-      vim.b.scratch_manager_source = source_name
-      sm.toggle_scratch_pad("sql")
-      assert.equals("open", calls[4].kind)
-      assert.equals("sql", calls[4].opts.ft)
-      assert.equals(md_pad.name, calls[4].opts.name)
-      local key = "1||" .. md_pad.name .. "|" .. vim.fs.normalize(md_pad.cwd) .. "|"
-      assert.truthy(calls[4].opts.file:find(require("snacks").util.file_encode(key) .. ".sql", 1, true))
-    end)
-
-    it("finds the other pads by the open pad's own directory, even after a :cd", function()
+    -- bar.lua open in the editor, with pads of every kind in the current set
+    local function setup_set(opts)
+      opts = opts or {}
       sm.setup({ enable_keymaps = false, indicator = { float = true, layout = "column" } })
       local source = edit_source("bar.lua")
-      local lua_pad, md_pad, sql_pad = pad("bar.lua", "lua"), pad("bar.lua", "markdown"), pad("bar.lua", "sql")
-      -- pad files under the scratch root (where pads are recognized as pads)
-      local root = vim.fn.stdpath("data") .. "/scratch"
-      vim.fn.mkdir(root, "p")
-      for _, item in ipairs({ lua_pad, md_pad, sql_pad }) do
-        local file = root .. "/cd_test." .. item.ft
-        vim.fn.writefile({ "x" }, file)
-        item.file = file
-      end
-      list_items = { lua_pad, md_pad, sql_pad }
-      vim.cmd.edit(vim.fn.fnameescape(lua_pad.file))
-      vim.b.scratch_manager_source = vim.api.nvim_buf_get_name(source)
+      local items = {
+        notes = pad("bar.lua", "markdown", { branch = opts.branch }),
+        code = pad("bar.lua", "lua", { branch = opts.branch }),
+        db = pad("bar.lua", "sql", { branch = opts.branch }),
+      }
+      list_items = { items.notes, items.code, items.db }
+      return source, items
+    end
+
+    it("3: in an own pad, its own kind closes it (back to the file, nothing else opens)", function()
+      local source, items = setup_set()
+      local win = show_pad(items.code, source)
+      sm.toggle_scratch_pad()
+      assert.is_false(vim.api.nvim_win_is_valid(win))
+      assert.equals(0, #calls)
+      assert.equals(source, vim.api.nvim_get_current_buf())
+    end)
+
+    it("2/3: in an own pad, another kind closes it and opens that kind (one pad on screen)", function()
+      local source, items = setup_set()
+      local win = show_pad(items.code, source)
+      sm.toggle_scratch_pad("markdown")
+      assert.is_false(vim.api.nvim_win_is_valid(win))
+      assert.equals(1, #calls)
+      assert.equals(items.notes.file, calls[1].opts.file)
+      assert.equals(source, vim.api.nvim_get_current_buf()) -- opened from the file
+    end)
+
+    it("4: a missing kind is created in the current set", function()
+      local source, items = setup_set()
+      list_items = { items.notes, items.code }
+      show_pad(items.notes, source)
+      sm.toggle_scratch_pad("sql")
+      assert.equals("sql", calls[1].opts.ft)
+      assert.equals(items.notes.name, calls[1].opts.name)
+      local key = "1||" .. items.notes.name .. "|" .. normalize(items.notes.cwd) .. "|"
+      assert.equals(vim.fn.stdpath("data") .. "/scratch/" .. require("snacks").util.file_encode(key .. ".sql"), calls[1].opts.file)
+    end)
+
+    it("1/3: another branch's pad of the same file is visiting: every key opens the current branch's pads", function()
+      set_branch("main")
+      local source, items = setup_set({ branch = "main" })
+      local feature = {
+        notes = pad("bar.lua", "markdown", { branch = "feature" }),
+        code = pad("bar.lua", "lua", { branch = "feature" }),
+      }
+      vim.list_extend(list_items, { feature.notes, feature.code })
+      show_pad(feature.notes, source) -- picked from =s with b
+
+      local ctx = require("scratch-manager.context").resolve()
+      assert.is_false(ctx.open.own)
+      assert.same({ notes = 1, code = 1, db = 1 }, ctx.kinds) -- main's pads, not feature's
+
+      sm.toggle_scratch_pad() -- =c
+      assert.equals(items.code.file, calls[#calls].opts.file)
+      show_pad(items.code, source)
+      sm.toggle_scratch_pad("markdown") -- == from main's code pad: main's notes
+      assert.equals(items.notes.file, calls[#calls].opts.file)
+    end)
+
+    it("3: another file's pad is visiting: even its own kind opens the current file's pad", function()
+      local source, items = setup_set()
+      local baz = pad("baz.lua", "markdown")
+      table.insert(list_items, baz)
+      local win, buf = show_pad(baz, nil)
+      vim.b[buf].scratch_manager_source = tmp .. "/baz.lua"
+      sm.toggle_scratch_pad("markdown")
+      assert.is_false(vim.api.nvim_win_is_valid(win))
+      assert.equals(items.notes.file, calls[#calls].opts.file)
+      assert.equals(source, vim.api.nvim_get_current_buf())
+    end)
+
+    it("1/5: badges show the current set; the connector only joins an own pad", function()
+      local source, items = setup_set()
+      local baz = pad("baz.lua", "markdown")
+      table.insert(list_items, baz)
+      local win, buf = show_pad(baz, nil)
+      vim.b[buf].scratch_manager_source = tmp .. "/baz.lua"
+      sm.refresh_indicator()
+      assert.is_not_nil(badge.get_win("code")) -- bar.lua's set
+      assert.is_nil(badge._connector.win) -- visiting: no connector
+
+      vim.api.nvim_win_close(win, true)
+      vim.api.nvim_set_current_buf(source)
+      show_pad(items.notes, source)
+      sm.refresh_indicator()
+      -- own pad: joined to its badge (the pad's own position decides whether it fits)
+      local ctx = require("scratch-manager.context").resolve()
+      assert.is_true(ctx.open.own)
+    end)
+
+    it("B23: inside an own pad, its set is its recorded directory, even after a :cd", function()
+      local source, items = setup_set()
+      show_pad(items.code, source)
       local elsewhere = vim.fn.tempname()
       vim.fn.mkdir(elsewhere, "p")
-      vim.fn.chdir(elsewhere) -- something changed :pwd since the pads were made
-
+      vim.fn.chdir(elsewhere)
       sm.toggle_scratch_pad("markdown")
-      assert.equals(md_pad.file, calls[#calls].opts.file) -- the existing notes pad, not a new one
-
-      -- and inside it, the stacked badges still show all three
-      vim.cmd.edit(vim.fn.fnameescape(md_pad.file))
-      vim.b.scratch_manager_source = vim.api.nvim_buf_get_name(source)
-      sm.refresh_indicator()
-      local badge = require("scratch-manager.badge")
-      assert.is_not_nil(badge.get_win("notes"))
-      assert.is_not_nil(badge.get_win("code"))
-      assert.is_not_nil(badge.get_win("db"))
+      assert.equals(items.notes.file, calls[#calls].opts.file) -- the existing notes pad, not a new one
     end)
 
-    describe("visiting another file's pad (opened from the =s list)", function()
-      -- bar.lua is open in the editor; baz.lua's notes pad is shown in a float, like after picking it in =s
-      local function visit()
-        sm.setup({ enable_keymaps = false, indicator = { float = true, layout = "column" } })
-        local root = vim.fn.stdpath("data") .. "/scratch"
-        vim.fn.mkdir(root, "p")
-        local bar = edit_source("bar.lua")
-        local baz_name = tmp .. "/baz.lua"
-        local items = {}
-        for _, spec in ipairs({ { "bar.lua", "markdown" }, { "bar.lua", "lua" }, { "baz.lua", "markdown" } }) do
-          local item = pad(spec[1], spec[2], { create = false })
-          item.file = root .. "/visit_" .. spec[1] .. "." .. spec[2]
-          vim.fn.writefile({ "x" }, item.file)
-          table.insert(items, item)
-        end
-        list_items = items
-        local baz_md = items[3]
-        local buf = vim.fn.bufadd(baz_md.file)
-        vim.fn.bufload(buf)
-        vim.bo[buf].filetype = "markdown"
-        vim.b[buf].scratch_manager_source = baz_name
-        local win = vim.api.nvim_open_win(buf, true, { relative = "editor", row = 1, col = 1, width = 30, height = 5, border = "rounded" })
-        return bar, items, buf, win
+    it("8: deleting a pad on screen closes its window first; no other pad is left in it", function()
+      local source, items = setup_set()
+      -- another pad loaded in the background (it could otherwise take over the window)
+      local other = vim.fn.bufadd(items.notes.file)
+      vim.fn.bufload(other)
+      local win = show_pad(items.db, source)
+      vim.fn.confirm = function()
+        return 1
       end
-
-      it("== opens the current file's notes pad instead of closing (not its own)", function()
-        local bar, items = visit()
-        sm.toggle_scratch_pad("markdown")
-        assert.equals(items[3].file, calls[#calls - 1].opts.file) -- the visited pad is closed
-        assert.equals(items[1].file, calls[#calls].opts.file) -- bar.lua's notes pad opens
-        assert.equals(bar, vim.api.nvim_get_current_buf())
-      end)
-
-      it("=c opens the current file's code pad", function()
-        local _, items = visit()
-        sm.toggle_scratch_pad()
-        assert.equals(items[2].file, calls[#calls].opts.file)
-      end)
-
-      it("shows the current file's badges, without a connector to the visited pad", function()
-        visit()
-        sm.refresh_indicator()
-        local badge = require("scratch-manager.badge")
-        assert.is_not_nil(badge.get_win("notes"))
-        assert.is_not_nil(badge.get_win("code")) -- bar.lua has a code pad; baz.lua doesn't
-        assert.is_nil(badge._connector.win)
-      end)
-
-      it("its own pad still closes with its own key", function()
-        local bar, items = visit()
-        -- now bar.lua's own notes pad is the one shown
-        local buf = vim.fn.bufadd(items[1].file)
-        vim.fn.bufload(buf)
-        vim.bo[buf].filetype = "markdown"
-        vim.b[buf].scratch_manager_source = vim.api.nvim_buf_get_name(bar)
-        vim.api.nvim_win_set_buf(0, buf)
-        local before = #calls
-        sm.toggle_scratch_pad("markdown")
-        assert.equals(before + 1, #calls) -- just closed
-        assert.equals(items[1].file, calls[#calls].opts.file)
-      end)
+      sm.delete_current_scratch_pad() -- =d inside the pad
+      assert.is_false(vim.api.nvim_win_is_valid(win))
+      for _, w in ipairs(vim.api.nvim_list_wins()) do
+        local buf = vim.api.nvim_win_get_buf(w)
+        assert.is_false(vim.api.nvim_win_get_config(w).relative ~= "" and require("scratch-manager.context").is_pad(buf))
+      end
+      assert.equals(0, vim.fn.filereadable(items.db.file))
     end)
 
-    it("still just closes the pad with its own kind's key, or when its source is unknown", function()
-      sm.setup({ enable_keymaps = false })
-      local lua_pad = pad("bar.lua", "lua")
-      list_items = { lua_pad }
-      vim.cmd.edit(vim.fn.fnameescape(lua_pad.file))
-      vim.b.scratch_manager_source = tmp .. "/bar.lua"
-      sm.toggle_scratch_pad() -- =c in a code pad
-      assert.equals(1, #calls)
+    it("the source stays the last file window: a sidebar or terminal getting focus doesn't replace it", function()
+      local source, items = setup_set()
+      local src_win = vim.api.nvim_get_current_win()
+      vim.cmd("botright vnew") -- a scratch sidebar (no file)
+      vim.bo.buftype = "nofile"
+      vim.api.nvim_exec_autocmds("WinEnter", {})
+      show_pad(items.code, source)
+      local ctx = require("scratch-manager.context").resolve()
+      assert.equals(src_win, ctx.source.win)
+      assert.is_true(ctx.open.own)
+      assert.same({ notes = 1, code = 1, db = 1 }, ctx.kinds)
+    end)
 
-      vim.b.scratch_manager_source = nil
-      sm.toggle_scratch_pad("markdown") -- source unknown: nothing to flip to
-      assert.equals(2, #calls)
+    it("the current set's project is the file's git repository, wherever :pwd is", function()
+      set_branch("main")
+      local source, items = setup_set({ branch = "main" })
+      local elsewhere = vim.fn.tempname()
+      vim.fn.mkdir(elsewhere, "p")
+      vim.fn.chdir(elsewhere) -- e.g. Neovim started from ~
+      local ctx = require("scratch-manager.context").resolve()
+      assert.equals(normalize(tmp), ctx.set.cwd)
+      assert.same({ notes = 1, code = 1, db = 1 }, ctx.kinds)
+      sm.toggle_scratch_pad("markdown")
+      assert.equals(items.notes.file, calls[#calls].opts.file)
+      assert.equals(source, vim.api.nvim_get_current_buf())
+    end)
+
+    it("6: switching keeps room for the badges (the size uses the same answer as the switch)", function()
+      vim.o.columns = 150
+      set_branch("main")
+      local source, items = setup_set({ branch = "main" })
+      sm.setup({ enable_keymaps = false, indicator = { float = true, layout = "column", icon = "N", code_icon = "C", db_icon = "D" } })
+      show_pad(items.notes, source)
+      local elsewhere = vim.fn.tempname()
+      vim.fn.mkdir(elsewhere, "p")
+      vim.fn.chdir(elsewhere)
+      sm.toggle_scratch_pad() -- =c from the notes pad
+      local win = calls[#calls].opts.win
+      assert.equals(items.code.file, calls[#calls].opts.file)
+      assert.equals(150 - 9 - win.width, win.col) -- three badges: the column stays free
+    end)
+
+    it("without a file behind the pad, keys only close it", function()
+      local _, items = setup_set()
+      vim.cmd("enew") -- no file in the editor window
+      local win = show_pad(items.code, nil)
+      sm.toggle_scratch_pad("markdown")
+      assert.is_false(vim.api.nvim_win_is_valid(win))
+      assert.equals(0, #calls)
     end)
   end)
 
@@ -1074,6 +1151,24 @@ describe("scratch-manager pads", function()
       assert.equals("P", sm.status())
     end)
 
+    it("status() is cheap: it reads the last refresh, never scanning the pads", function()
+      sm.setup({ enable_keymaps = false, indicator = { icon = "P" } })
+      list_items = { pad("bar.lua", "markdown") }
+      edit_source("bar.lua")
+      sm.refresh_indicator()
+      local scans = 0
+      local list = mock_scratch.list
+      mock_scratch.list = function()
+        scans = scans + 1
+        return list()
+      end
+      for _ = 1, 50 do
+        assert.equals("P", sm.status())
+      end
+      mock_scratch.list = list
+      assert.equals(0, scans)
+    end)
+
     it("ignores special buffers", function()
       sm.setup({ enable_keymaps = false })
       list_items = { pad("bar.lua", "lua") }
@@ -1349,23 +1444,50 @@ describe("scratch-manager pads", function()
         assert.equals(150 - 9 - win.width, win.col)
       end)
 
-      it("keeps stacked badges up inside a pad, showing its source file's pads", function()
-        sm.setup({ enable_keymaps = false, indicator = { float = true, layout = "column" } })
-        local md_pad = pad("bar.lua", "markdown")
-        list_items = { md_pad }
-        local source = edit_source("bar.lua")
-        sm.refresh_indicator()
+      it("hides a lone badge while its pad (which then takes the full width) is open", function()
+        vim.o.columns = 150
+        sm.setup({ enable_keymaps = false, indicator = { float = true, layout = "column", icon = "N" } })
         local root = vim.fn.stdpath("data") .. "/scratch"
         vim.fn.mkdir(root, "p")
-        vim.cmd.edit(vim.fn.fnameescape(root .. "/notes_pad.markdown"))
-        vim.b.scratch_manager_source = vim.api.nvim_buf_get_name(source)
+        local only = pad("bar.lua", "markdown", { create = false })
+        only.file = root .. "/lone.markdown"
+        vim.fn.writefile({ "x" }, only.file)
+        list_items = { only }
+        local source = edit_source("bar.lua")
         sm.refresh_indicator()
         assert.is_not_nil(badge.get_win("notes"))
 
-        -- the default layout hides them inside a pad, as before
-        sm.setup({ enable_keymaps = false, indicator = { float = true } })
+        -- the pad opens full width (one badge: no room kept), right where the badge is
+        sm.toggle_scratch_pad("markdown")
+        local cfg = calls[#calls].opts.win
+        assert.equals(150 - cfg.width, cfg.col)
+        local buf = vim.fn.bufadd(only.file)
+        vim.fn.bufload(buf)
+        vim.bo[buf].filetype = "markdown"
+        vim.b[buf].scratch_manager_source = vim.api.nvim_buf_get_name(source)
+        local pad_win = vim.api.nvim_open_win(buf, true, {
+          relative = "editor", row = cfg.row, col = cfg.col, width = cfg.width, height = 20, border = "rounded",
+        })
         sm.refresh_indicator()
-        assert.is_nil(badge.get_win("notes"))
+        assert.is_nil(badge.get_win("notes")) -- not drawn on top of the pad
+        assert.is_nil(badge._connector.win)
+
+        vim.api.nvim_win_close(pad_win, true)
+        vim.api.nvim_set_current_buf(source)
+        sm.refresh_indicator()
+        assert.is_not_nil(badge.get_win("notes")) -- back once the pad is closed
+      end)
+
+      it("keeps stacked badges up inside a pad, showing its source file's pads", function()
+        sm.setup({ enable_keymaps = false, indicator = { float = true, layout = "column" } })
+        local md_pad, lua_pad = pad("bar.lua", "markdown"), pad("bar.lua", "lua")
+        list_items = { md_pad, lua_pad }
+        local source = edit_source("bar.lua")
+        sm.refresh_indicator()
+        show_pad(md_pad, source) -- a small pad on the left: covers no badge
+        sm.refresh_indicator()
+        assert.is_not_nil(badge.get_win("notes"))
+        assert.is_not_nil(badge.get_win("code"))
       end)
 
       it("uses the editor background like the pads, or the float background when not transparent", function()
