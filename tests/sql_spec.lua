@@ -212,4 +212,32 @@ describe("scratch-manager.sql", function()
     sql.run(pad_buffer({ "", "  " }), { provider = fake_provider() })
     assert.equals(0, #executed)
   end)
+
+  it("enhance provider: fills vim-dadbod-completion's cache on attach, while the pad is on screen", function()
+    local saved_api = package.loaded["enhance.api"]
+    package.loaded["enhance.api"] = {
+      version = 1,
+      attach = function(bufnr)
+        vim.b[bufnr].db = "sqlserver://example"
+      end,
+    }
+    -- stand-in for vim-dadbod-completion (autoload functions can't be defined from a test)
+    local fetched
+    local exists = vim.fn.exists
+    vim.fn.exists = function(name)
+      return name == "*vim_dadbod_completion#fetch" and 1 or exists(name)
+    end
+    vim.fn["vim_dadbod_completion#fetch"] = function(b)
+      fetched = b
+    end
+    local buf = vim.api.nvim_create_buf(false, true)
+    package.loaded["scratch-manager.providers.enhance"] = nil
+    require("scratch-manager.providers.enhance").attach({ name = "Dev" }, buf)
+    vim.fn.exists = exists
+    vim.fn["vim_dadbod_completion#fetch"] = nil
+    assert.equals(buf, fetched)
+
+    package.loaded["enhance.api"] = saved_api
+    package.loaded["scratch-manager.providers.enhance"] = nil
+  end)
 end)

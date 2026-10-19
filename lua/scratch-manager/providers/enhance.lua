@@ -49,17 +49,30 @@ function M.execute(connection, query, bufnr)
 	require("enhance.executor").execute(connection, query, bufnr)
 end
 
+---Fill vim-dadbod-completion's table cache for the pad's connection now, while the pad is on screen.
+---Otherwise its FileType handler fetches the tables (synchronously) the next time the pad is shown,
+---and snacks sets the filetype before the pad has a window: the fetch then runs in Neovim's hidden
+---autocmd window, which shows up borderless at the top-left with the pad's text until it's done.
+---@param bufnr number
+local function warm_completion(bufnr)
+	if vim.api.nvim_buf_is_valid(bufnr) and vim.b[bufnr].db and vim.fn.exists("*vim_dadbod_completion#fetch") == 1 then
+		pcall(vim.fn["vim_dadbod_completion#fetch"], bufnr)
+	end
+end
+
 ---Table/column completion for the pad (SQL Server, via vim-dadbod-completion)
 function M.attach(connection, bufnr)
 	local api = public_api()
 	if api and api.attach then
 		api.attach(bufnr, connection)
+		warm_completion(bufnr)
 		return
 	end
 	-- Older enhance (e.g. the published version): same completion setup, without the public API
 	local ok, completion = pcall(require, "enhance.completion")
 	if ok and type(completion.setup) == "function" then
 		completion.setup(bufnr, connection)
+		warm_completion(bufnr)
 	end
 end
 
