@@ -765,11 +765,37 @@ function M.toggle_scratch_pad(file_type)
 	local buffers = get_snacks().scratch.list()
 	local bufnr = vim.api.nvim_get_current_buf()
 
-	-- Toggling from inside a pad closes it instead of creating a pad for the pad
+	-- From inside a pad: the key of its own kind closes it; another kind's key flips to that pad
+	-- (opening or creating it) for the same source file
 	local own_pad = pad_for_buffer(buffers, bufnr)
 	if own_pad then
-		M.open_scratch(own_pad)
-		return
+		local wanted = file_type and pad_kind(file_type) or "code"
+		local source = vim.b[bufnr].scratch_manager_source
+			or store.get("pad_sources", vim.fs.normalize(vim.api.nvim_buf_get_name(bufnr)))
+		M.open_scratch(own_pad) -- closes it
+		if wanted == pad_kind(own_pad.ft) or not source or source == "" then
+			return
+		end
+		-- Back to the source file: its window if one shows it, else the first regular window
+		local source_buf = vim.fn.bufnr(source)
+		local target
+		for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+			if vim.api.nvim_win_get_config(win).relative == "" then
+				if vim.api.nvim_win_get_buf(win) == source_buf then
+					target = win
+					break
+				end
+				target = target or win
+			end
+		end
+		if not target then
+			return
+		end
+		vim.api.nvim_set_current_win(target)
+		if vim.api.nvim_win_get_buf(target) ~= source_buf then
+			vim.cmd.edit(vim.fn.fnameescape(source))
+		end
+		return M.toggle_scratch_pad(file_type)
 	end
 
 	local config = get_buffer_config(bufnr, file_type)
@@ -811,7 +837,10 @@ local function current_kinds()
 		if name ~= "" and vim.startswith(name, scratch_root() .. "/") then
 			local source = vim.b.scratch_manager_source or store.get("pad_sources", name)
 			local source_buf = source and vim.fn.bufnr(source) or -1
-			kinds = source_buf > 0 and vim.b[source_buf].scratch_manager_pad_kinds or nil
+			kinds = source_buf > 0 and vim.deepcopy(vim.b[source_buf].scratch_manager_pad_kinds or {}) or {}
+			-- The open pad counts even before its first save (snacks lists saved pads only)
+			local own = pad_kind(vim.bo.filetype)
+			kinds[own] = math.max(kinds[own] or 0, 1)
 		end
 	end
 	return type(kinds) == "table" and kinds or { notes = 0, code = 0, db = 0 }
@@ -880,10 +909,26 @@ function M.refresh_indicator(bufnr)
 	local kinds = { notes = 0, code = 0, db = 0 }
 	if vim.bo[bufnr].buftype == "" and vim.api.nvim_buf_get_name(bufnr) ~= "" then
 		local buffers = get_snacks().scratch.list()
-		if not pad_for_buffer(buffers, bufnr) then
+		local own = pad_for_buffer(buffers, bufnr)
+		if not own then
 			for _, item in ipairs(M.find_scratch_pads(buffers, get_buffer_config(bufnr))) do
 				local kind = pad_kind(item.ft)
 				kinds[kind] = kinds[kind] + 1
+			end
+		elseif (get_config().indicator or {}).layout == "column" then
+			-- Inside a pad, stacked badges show its source file's pads: recount them (pads may have been
+			-- created by flipping between them, without going back to the source)
+			local source = vim.b[bufnr].scratch_manager_source
+				or store.get("pad_sources", vim.fs.normalize(vim.api.nvim_buf_get_name(bufnr)))
+			local source_buf = source and vim.fn.bufnr(source) or -1
+			if source_buf > 0 and source_buf ~= bufnr then
+				local source_kinds = { notes = 0, code = 0, db = 0 }
+				for _, item in ipairs(M.find_scratch_pads(buffers, get_buffer_config(source_buf))) do
+					local kind = pad_kind(item.ft)
+					source_kinds[kind] = source_kinds[kind] + 1
+				end
+				vim.b[source_buf].scratch_manager_pad_kinds = source_kinds
+				vim.b[source_buf].scratch_manager_pads = source_kinds.notes + source_kinds.code + source_kinds.db
 			end
 		end
 	end
@@ -985,7 +1030,8 @@ function M.open_pad_from_badge(kind)
 		if #pads == 1 then
 			local grow_kind = kind or pad_kind(pads[1].ft)
 			local source = vim.api.nvim_get_current_buf()
-			badge.grow(grow_kind, get_window_options(), border_hl(pad_kind(pads[1].ft)), function()
+			-- Same geometry the pad opens with (its filetype decides whether badges need room)
+			badge.grow(grow_kind, get_window_options(nil, nil, pads[1].ft), border_hl(pad_kind(pads[1].ft)), function()
 				M.open_scratch(pads[1])
 				remember_source(source)
 			end)

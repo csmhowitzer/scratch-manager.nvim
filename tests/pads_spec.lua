@@ -281,6 +281,45 @@ describe("scratch-manager pads", function()
     end)
   end)
 
+  describe("flipping between pads", function()
+    it("opens another kind of pad for the same source from inside a pad (==, =c, =q)", function()
+      sm.setup({ enable_keymaps = false })
+      local source = edit_source("bar.lua")
+      local source_name = vim.api.nvim_buf_get_name(source)
+      local lua_pad, md_pad = pad("bar.lua", "lua"), pad("bar.lua", "markdown")
+      list_items = { lua_pad, md_pad }
+      vim.cmd.edit(vim.fn.fnameescape(lua_pad.file))
+      vim.b.scratch_manager_source = source_name
+
+      sm.toggle_scratch_pad("markdown") -- == inside the code pad
+      assert.equals(2, #calls)
+      assert.equals(lua_pad.file, calls[1].opts.file) -- the code pad is closed (snacks toggles it)
+      assert.equals(md_pad.file, calls[2].opts.file) -- and the notes pad opened
+      assert.equals(source, vim.api.nvim_get_current_buf()) -- opened from the source file
+
+      -- no DB pad yet: =q creates one for the source
+      vim.cmd.edit(vim.fn.fnameescape(md_pad.file))
+      vim.b.scratch_manager_source = source_name
+      sm.toggle_scratch_pad("sql")
+      assert.equals("new", calls[4].kind)
+      assert.equals("sql", calls[4].opts.ft)
+    end)
+
+    it("still just closes the pad with its own kind's key, or when its source is unknown", function()
+      sm.setup({ enable_keymaps = false })
+      local lua_pad = pad("bar.lua", "lua")
+      list_items = { lua_pad }
+      vim.cmd.edit(vim.fn.fnameescape(lua_pad.file))
+      vim.b.scratch_manager_source = tmp .. "/bar.lua"
+      sm.toggle_scratch_pad() -- =c in a code pad
+      assert.equals(1, #calls)
+
+      vim.b.scratch_manager_source = nil
+      sm.toggle_scratch_pad("markdown") -- source unknown: nothing to flip to
+      assert.equals(2, #calls)
+    end)
+  end)
+
   describe("delete", function()
     before_each(function()
       sm.setup({ enable_keymaps = false })
