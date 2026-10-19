@@ -1349,7 +1349,8 @@ local function setup_autosave()
 	})
 end
 
----Turn watch mode on or off for a pad (rerun after edits); remembered per pad
+---Turn watch mode on or off for a pad (rerun after edits). Off by default: it's turned on per pad
+---and stays on only while the pad is on screen (closing or leaving the pad turns it off; nothing is saved)
 ---@param bufnr number|nil Pad buffer (defaults to the current buffer)
 ---@return boolean on
 function M.toggle_watch(bufnr)
@@ -1360,38 +1361,9 @@ function M.toggle_watch(bufnr)
 		return false
 	end
 	local on = runner.watch(bufnr, ft, (get_config().run or {})[ft] or {})
-	store.set("pad_watch", vim.fs.normalize(vim.api.nvim_buf_get_name(bufnr)), on or nil)
 	vim.notify(on and "Watch on: the pad reruns after each edit while it has a value to show (.Dump())"
 		or "Watch off", vim.log.levels.INFO)
 	return on
-end
-
----Turn watch mode back on for a pad that had it on last time
----@param bufnr number
----@private
-local function restore_watch(bufnr)
-	local ft = vim.bo[bufnr].filetype
-	if ft == "" or runner.watching(bufnr) or not (languages.get(ft).run or {}).watchable then
-		return
-	end
-	local run = (get_config().run or {})[ft] or {}
-	if run.enabled ~= false and store.get("pad_watch", vim.fs.normalize(vim.api.nvim_buf_get_name(bufnr))) then
-		runner.watch(bufnr, ft, run, true)
-	end
-end
-
----Restore watch mode when a pad that had it on opens again (snacks sets the filetype after BufEnter)
----@private
-local function setup_watch()
-	local group = vim.api.nvim_create_augroup("ScratchManagerWatch", { clear = true })
-	vim.api.nvim_create_autocmd({ "BufEnter", "FileType" }, {
-		group = group,
-		callback = function(args)
-			if is_pad_buffer(args.buf) then
-				restore_watch(args.buf)
-			end
-		end,
-	})
 end
 
 ---Forget a pad left empty: wipe its buffer, delete its file and what was stored for it
@@ -1416,7 +1388,7 @@ local function forget_empty_pad(bufnr)
 	if store.get("pad_sources", file) ~= nil then
 		store.set("pad_sources", file, nil)
 	end
-	for _, name in ipairs({ "sql_connections", "pad_watch" }) do
+	for _, name in ipairs({ "sql_connections" }) do
 		if store.get(name, file) ~= nil then
 			store.set(name, file, nil)
 		end
@@ -1686,7 +1658,6 @@ function M.setup(opts)
 	setup_indicator()
 	setup_autosave()
 	setup_persistence()
-	setup_watch()
 
 	-- Create user command
 	vim.api.nvim_create_user_command("ScratchPadDisplay", function()

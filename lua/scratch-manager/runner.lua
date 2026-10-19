@@ -464,6 +464,10 @@ function M.run(bufnr, ft, config, opts)
 		vim.schedule(function()
 			local state = running[bufnr]
 			running[bufnr] = nil
+			-- Watch mode was turned off meanwhile (the pad closed): nothing to show
+			if opts.watch and not M.watching(bufnr) then
+				return
+			end
 			-- Edited while running (watch mode): run again, and skip results that describe old text
 			if M.watching(bufnr) and vim.api.nvim_buf_is_valid(bufnr) then
 				local stale = vim.api.nvim_buf_get_changedtick(bufnr) ~= tick
@@ -592,11 +596,17 @@ function M.watch(bufnr, ft, config, on)
 		end))
 	end
 	vim.api.nvim_create_autocmd({ "TextChanged", "InsertLeave" }, { group = group, buffer = bufnr, callback = trigger })
-	vim.api.nvim_create_autocmd("BufWipeout", {
+	-- Only while the pad is on screen: closing its window (closing, toggling or flipping to another pad)
+	-- turns watch mode off, and it has to be turned on again
+	vim.api.nvim_create_autocmd({ "BufWinLeave", "BufWipeout" }, {
 		group = group,
 		buffer = bufnr,
 		callback = function()
-			M.watch(bufnr, ft, config, false)
+			vim.schedule(function()
+				if M.watching(bufnr) and #vim.fn.win_findbuf(bufnr) == 0 then
+					M.watch(bufnr, ft, config, false)
+				end
+			end)
 		end,
 	})
 	vim.api.nvim_buf_set_extmark(bufnr, watch_ns, 0, 0, {

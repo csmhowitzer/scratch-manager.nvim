@@ -718,32 +718,37 @@ describe("scratch-manager pads", function()
       assert.is_nil(calls[3].opts.win.keys.watch)
     end)
 
-    it("remembers watch mode per pad and turns it back on when the pad opens again", function()
+    it("is off until turned on, per pad, only while the pad is on screen (nothing saved)", function()
       -- a stand-in command, and no .Dump() so nothing actually runs
       sm.setup({ enable_keymaps = false, run = { cs = { cmd = { "true" } } } })
       local root = vim.fn.stdpath("data") .. "/scratch"
       assert.truthy(root:find(vim.env.SCRATCH_MANAGER_TEST_HOME, 1, true))
       vim.fn.mkdir(root, "p")
       local file = normalize(root .. "/watched.cs")
+      local other = normalize(root .. "/other.cs")
       vim.fn.writefile({ "var a = 1;" }, file)
+      vim.fn.writefile({ "var b = 1;" }, other)
       vim.cmd.edit(vim.fn.fnameescape(file))
       vim.bo.filetype = "cs"
       local buf = vim.api.nvim_get_current_buf()
+      assert.is_false(runner.watching(buf)) -- off when a pad opens
 
       assert.is_true(sm.toggle_watch(buf))
-      assert.is_true(store.get("pad_watch", file))
       assert.truthy(notifications[#notifications].msg:find("Watch on", 1, true))
+      assert.is_nil(store.get("pad_watch", file)) -- nothing saved
 
-      -- closed and opened again (new buffer): watch mode comes back
-      vim.cmd("bwipeout! " .. buf)
+      -- leaving it for another pad turns it off; the other pad starts off too
+      vim.cmd.edit(vim.fn.fnameescape(other))
+      vim.bo.filetype = "cs"
+      assert.is_false(runner.watching(vim.api.nvim_get_current_buf()))
+      vim.wait(100, function() return not runner.watching(buf) end)
       assert.is_false(runner.watching(buf))
+
+      -- opened fresh (like a new Neovim session): off again
+      vim.cmd("bwipeout! " .. buf)
       vim.cmd.edit(vim.fn.fnameescape(file))
       vim.bo.filetype = "cs"
-      local again = vim.api.nvim_get_current_buf()
-      assert.is_true(runner.watching(again))
-
-      assert.is_false(sm.toggle_watch(again))
-      assert.is_nil(store.get("pad_watch", file))
+      assert.is_false(runner.watching(vim.api.nvim_get_current_buf()))
     end)
 
     it("says when a pad's language has no watch mode", function()

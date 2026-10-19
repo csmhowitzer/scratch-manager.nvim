@@ -517,8 +517,10 @@ pad_watch               =l              Inside a C# pad: watch mode. Reruns
                                         leaving insert mode, while the pad
                                         has a .Dump(). Quiet: the output only
                                         opens for errors or printed output.
-                                        Off clears the values. Remembered
-                                        per pad; ◉ watch shows while on
+                                        Off clears the values. Off at
+                                        start: on per pad, only while the
+                                        pad is open (closing or leaving it
+                                        turns it off); ◉ watch shows while on
 select                  =s              Select from existing scratch buffers
 delete                  =d              Delete current scratch buffer
 

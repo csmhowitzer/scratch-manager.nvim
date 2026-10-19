@@ -524,7 +524,7 @@ function M.help(info, h)
 		{ p = "A `.Dump()` in a loop shows every value: `(3×) 14 │ 11 │ 12`. Editing the pad clears the values until the next run." },
 		{ h = "Watch mode" },
 		{
-			p = ("With watch mode on (" .. h.key(km.pad_watch) .. ", `◉ watch` at the top right), the pad reruns about half a second after each change in normal mode or when you leave insert mode, as long as it has a `.Dump()`. Values update in place; the output only opens for errors or printed output. Turning it off clears the values. It stays on for this pad next time."),
+			p = ("With watch mode on (" .. h.key(km.pad_watch) .. ", `◉ watch` at the top right), the pad reruns about half a second after each change in normal mode or when you leave insert mode, as long as it has a `.Dump()`. Values update in place; the output only opens for errors or printed output. Turning it off clears the values. It starts off and stays on only while you're looking at the pad: closing it or switching to another pad turns it off."),
 		},
 		{ h = "Using your project" },
 		{
