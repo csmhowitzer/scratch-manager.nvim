@@ -2,7 +2,7 @@
 
 *Professional scratch buffer management for Neovim*
 
-[![Tests](https://img.shields.io/badge/tests-92%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-plenary-brightgreen)](tests/)
 [![Health Check](https://img.shields.io/badge/health%20check-comprehensive-blue)](#health-check)
 [![Documentation](https://img.shields.io/badge/docs-complete-success)](#documentation)
 
@@ -12,15 +12,16 @@ A powerful scratch buffer management plugin that enhances [folke/snacks.nvim](ht
 
 ## ✨ Features
 
-- **Smart Buffer Management**: Automatic persistence and reload of scratch buffers based on current context
-- **Customizable Styling**: Configurable borders, colors, positioning, and window dimensions
-- **Multiple File Types**: Support for markdown, code, and any filetype with language-aware detection
-- **Session Persistence**: Scratch buffers survive across Neovim sessions and reload intelligently
-- **Intuitive Keymaps**: Quick access with customizable key bindings that fit your workflow
-- **Health Check Integration**: Comprehensive diagnostics and validation system
-- **Scratch Pad Indicator**: Statusline component that shows when the current buffer has a scratch pad
-- **Professional Test Suite**: 109 comprehensive test cases ensuring reliability
-- **Complete Documentation**: Professional help docs with 40+ searchable tags
+- **Three pads per file**: notes (`==`), code in the file's language (`=c`) and SQL (`=q`), kept per
+  file, project and branch, saved as you type; flip between them with the same keys
+- **Run code in a pad**: C# with `dotnet run` (no project needed, or referencing yours), inline
+  `.Dump()` values, watch mode (`=l`); SQL against your connections; Lua via snacks
+- **Language servers in pads**: Roslyn completion and errors in C# pads, through a clean mirror file
+- **Send code to a pad** (`=p`): the function under the cursor, with its usings, as runnable code
+- **Badges and statusline**: which pads the current file has, clickable, stacked or in a row
+- **Pad list** (`=s`): every pad, this file's first, with type, age, branch filter and delete
+- **Language profiles**: add a language (runner, `=p`, help) from your config
+- **Health check** (`:checkhealth scratch-manager`), help (`:help scratch-manager`) and a plenary test suite
 
 ## Requirements
 
@@ -109,8 +110,8 @@ require("scratch-manager").setup({
     db_icon = "",                 -- DB pad icon ("DB" without a Nerd Font)
     show_count = true,            -- Append the count when a buffer has several pads
     notify = false,               -- Also notify once when entering a buffer with a pad
-    float = false,                -- Clickable notes/code badges in the top-right corner
-    animate = false,              -- Grow the pad out of the badge when clicked
+    float = false,                -- Clickable badges (notes, code, DB) for the current file's pads
+    animate = false,              -- Grow the pad out of the badge when clicked (no pad open)
     transparent = true,           -- Badges use the editor background like the pads (false: float background)
     layout = "row",               -- "row": side by side top-right; "column": stacked down the right edge,
                                   -- pads shift left to keep them visible and they stay up while a pad is open
@@ -205,19 +206,30 @@ Set `lsp.detach = false` to leave every server attached as-is. Pad buffers carry
 Notes pads soft-wrap long lines; code and DB pads don't (`wrap` sets this per kind, or
 `true`/`false` for all). `<M-z>` (Alt+z) toggles wrapping in the current pad.
 
-### How pads are matched
+### How pads work
 
-A pad belongs to a file by its name, Neovim's working directory (`:pwd`), the git
-branch, and the pad's filetype, the same key snacks.nvim uses for scratch files. So
-`==` (markdown) and `=c` (code) keep two separate pads for the same file, and pads
-created on one branch don't show up on another.
+**Which pads belong to a file.** A pad belongs to a file by its name, the file's project (its git
+repository; `:pwd` for files outside git), the git branch and the pad's type. So each file has its
+own notes, code and DB pad, and pads made on one branch don't show up on another. Where Neovim was
+started, or a later `:cd`, doesn't change this.
+
+**`==`, `=c` and `=q` (and clicking a badge)** always act on the current file's pads, the file in
+the editor window you used last:
+
+- In a file: open that pad, or create it if there isn't one.
+- In one of the file's pads: the same key closes it; another key switches to that pad.
+- In another file's (or branch's) pad, opened from the `=s` list: any key switches to the
+  *current* file's pad of that kind. The list never changes which file a pad belongs to.
+
+Only one pad is on screen at a time. Deleting a pad (`=d`, or `d` in `=s`) closes it first.
 
 ### Scratch pad indicator
 
 Pads come in three kinds: **notes** (markdown, `==`, gold border), **code** (the file's
 language, `=c`, purple border) and **DB** (SQL, `=q`, green border). `status()` returns the
-icon of each kind the current buffer has (each with a count if there are several), or `""`. It only reads a cached buffer variable, so it is
-safe to call on every statusline redraw.
+icon of each kind the current file has (each with a count if there are several), or `""`. It
+only reads the counts from the last refresh (on entering a buffer or window, `:cd`, closing or
+saving a pad), so it is cheap to call on every statusline redraw.
 
 ```lua
 -- lualine
@@ -232,13 +244,16 @@ vim.o.statusline = "%f %{v:lua.require'scratch-manager'.status()} %=%l:%c"
 Set `indicator.notify = true` for a one-time notification instead of (or as well as)
 the icon.
 
-Set `indicator.float = true` for small bordered badges in the top-right corner (below
-the tabline): the notes badge in the corner, then code, then DB to the left, each only when
-that kind of pad exists. Click one, or focus it and press `<CR>`, to open that pad (you're
-asked which one if there are several of that kind). They hide while you're inside a pad.
+Set `indicator.float = true` for small bordered badges showing the current file's pads: notes,
+code and DB, each only when that kind of pad exists. Clicking one (or focusing it and pressing
+`<CR>`) does what that kind's key does (see [How pads work](#how-pads-work)). With
+`layout = "row"` they sit side by side in the top-right corner; with `layout = "column"` they're
+stacked down the right edge, stay up while a pad is open, and a short line joins the open pad to
+its badge. A pad keeps the badge column free when there are two or more badges; with one, the
+pad takes the full width and the badge hides while it's open (badges never sit on a pad).
 Icon color: `highlights.badge`; borders: `highlights.scratch_border` / `highlights.code_border` /
-`highlights.db_border`. With `indicator.animate = true`
-an empty box grows from the badge to the pad's size (~150ms) before the pad opens.
+`highlights.db_border`. With `indicator.animate = true` an empty box grows from the badge to the
+pad's size (~150ms) before the pad opens.
 
 ### Running code in a pad
 
@@ -366,18 +381,16 @@ The health check validates:
 
 ## Testing
 
-Run the comprehensive test suite:
+Run the suite with [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) from the plugin
+directory (`tests/minimal_init.lua` isolates it: temporary data, cache and state directories, so
+your own pads are never touched):
 
-```vim
-:PlenaryBustedFile tests/basic_spec.lua
+```sh
+nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests" -c "qa!"
 ```
 
-**Test Coverage:**
-- ✅ 16 test cases covering all functionality
-- ✅ Setup and configuration validation
-- ✅ Core buffer management operations
-- ✅ Error handling and edge cases
-- ✅ Integration with snacks.nvim
+The pad rules (which pads count, what every key and badge does) each have a test in
+`tests/pads_spec.lua` (`describe("pad rules")`).
 
 ## Documentation
 
@@ -415,7 +428,7 @@ require("scratch-manager").find_scratch_pads(buffers, config)
 -- Indicator
 require("scratch-manager").status()            -- statusline component
 require("scratch-manager").refresh_indicator() -- recompute for a buffer
-require("scratch-manager").open_pad()          -- open the current buffer's pad
+require("scratch-manager").open_pad(kind)      -- what that kind's key does ("notes", "code", "db"); no kind: pick one
 ```
 
 See `:help scratch-manager-functions` for complete API documentation.

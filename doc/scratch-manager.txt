@@ -33,7 +33,10 @@ Features:~
 • Intuitive keymaps for quick access and workflow integration
 • Comprehensive health check integration for diagnostics and validation
 • Statusline indicator for buffers that have a scratch pad
-• Professional test suite with 109 comprehensive test cases
+• Notes, code and SQL pads per file, project and branch; flip with ==/=c/=q
+• Runs C# (dotnet run, .Dump() values, watch mode) and SQL pads
+• Roslyn in C# pads; =p sends code to a pad; =s lists every pad
+• Plenary test suite, including one test per pad rule
 
 This plugin enhances the excellent snacks.nvim scratch functionality with
 additional features for power users who need reliable, persistent scratch
@@ -234,24 +237,26 @@ indicator               (table)
                            Default: true
     • notify     (boolean) Notify once per buffer when it has a pad.
                            Default: false
-    • float      (boolean) Show small bordered badges in the top-right
-                           corner: notes in the corner, code to its left,
-                           each only when that kind of pad exists. Click
-                           one (or focus it and press <CR>) to open that
-                           pad. Default: false
+    • float      (boolean) Show small bordered badges for the current
+                           file's pads (notes, code, DB), each only when
+                           that kind exists. Clicking one (or focusing it
+                           and pressing <CR>) does what that kind's key
+                           does (|scratch-manager-matching|). Badges never
+                           sit on a pad: one an open pad would cover is
+                           hidden while it's open. Default: false
     • animate    (boolean) Grow an empty box from the badge to the pad's
-                           size (~150ms) before opening it. Only when the
-                           buffer has exactly one pad. Default: false
+                           size (~150ms) before opening it (when no pad is
+                           open). Default: false
     • transparent (boolean) Badges use the editor background, like the
                            pad windows. false: the regular floating-window
                            background. Default: true
     • layout (string)      "row": badges side by side in the top-right
                            corner. "column": stacked down the right edge;
-                           pads open shifted left so the badges stay
-                           visible and clickable, and they stay up while a
-                           pad is open (clicking the open pad's badge
-                           closes it, another badge switches to that pad).
-                           Default: "row"
+                           with two or more, pads keep the column free so
+                           the badges stay visible and clickable while a
+                           pad is open, and a short line joins the open
+                           pad to its badge. With one badge the pad takes
+                           the full width. Default: "row"
 
 *scratch-manager-config-run*
 run                     (table)
@@ -354,12 +359,22 @@ Hooks: `run` (command, work file, prepare, hide_line, inline), `imports`,
 `languages/cs.lua`.
 
                                                     *scratch-manager-matching*
-How pads are matched:~
-A pad belongs to a file by its name, Neovim's working directory (|:pwd|),
-the git branch, and the pad's filetype, the same key snacks.nvim uses for
-scratch files. `==` (markdown) and `=c` (code) therefore keep separate pads
-for the same file, and pads created on one branch are not shown on another.
-Toggling from inside a pad closes it.
+How pads work:~
+A pad belongs to a file by its name, the file's project (its git
+repository; |:pwd| for files outside git), the git branch and the pad's
+type. Each file has its own notes, code and DB pad, and pads made on one
+branch are not shown on another. Where Neovim was started, or a later |:cd|,
+doesn't change this.
+
+`==`, `=c` and `=q` (and clicking a badge) always act on the current file's
+pads, the file in the editor window used last:
+  • In a file: open that pad, or create it if there isn't one.
+  • In one of the file's pads: the same key closes it; another key
+    switches to that pad.
+  • In another file's (or branch's) pad, opened from `=s`: any key switches
+    to the current file's pad of that kind. The list never changes which
+    file a pad belongs to.
+Only one pad is on screen at a time. Deleting a pad closes it first.
 
 Pads come in three kinds: notes (markdown, `==`, gold border from
 `highlights.scratch_border`), code (the file's language, `=c`, purple border
@@ -467,11 +482,10 @@ editing workflow while providing easy access to scratch space.
     buffer so it cannot be written back.
 
 *scratch-manager.status()*
-    Statusline component. Returns the notes icon and/or the code icon for
-    the pads the current buffer has (each with a count if there are
-    several), otherwise "".
-    Only reads the cached `b:scratch_manager_pads`, so it is cheap to call
-    on every redraw.
+    Statusline component. Returns the icon of each kind of pad the current
+    file has (each with a count if there are several), otherwise "".
+    Only reads the counts from the last refresh, so it is cheap to call on
+    every redraw.
 
     Example:~
 >lua
@@ -485,14 +499,15 @@ editing workflow while providing easy access to scratch space.
 <
 
 *scratch-manager.refresh_indicator({bufnr})*
-    Recompute `b:scratch_manager_pads` for {bufnr} (default: current
-    buffer). Runs automatically on |BufEnter|, |DirChanged|, |TabEnter|,
+    Recompute the current file's pads (also kept in `b:scratch_manager_pads`
+    and `b:scratch_manager_pad_kinds` on the file's buffer) and update the
+    badges. Runs automatically on |BufEnter|, |DirChanged|, |TabEnter|,
     |WinClosed| and when a pad is written.
 
 *scratch-manager.open_pad({kind})*
-    Open the current buffer's existing scratch pad. {kind} ("notes" or
-    "code", optional) limits it to that kind. Asks which one if there are
-    several; notifies if there is none. Used by the floating badges.
+    With {kind} ("notes", "code" or "db"): what that kind's key does (see
+    |scratch-manager-matching|). Without: asks which of the current file's
+    pads to open; notifies if there is none.
 
 ==============================================================================
 8. KEYMAPS                                               *scratch-manager-keymaps*
@@ -685,9 +700,10 @@ Getting Help:~
 4. Ensure all dependencies are properly installed
 
 Testing:~
-Run the test suite to verify functionality:
->vim
-  :PlenaryBustedFile tests/basic_spec.lua
+Run the test suite (plenary.nvim) from the plugin directory; the minimal
+init uses temporary data/cache/state directories:
+>sh
+  nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests" -c "qa!"
 <
 
 ==============================================================================

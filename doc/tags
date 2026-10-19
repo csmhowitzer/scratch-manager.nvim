@@ -11,6 +11,7 @@ scratch-manager-config-indicator	scratch-manager.txt	/*scratch-manager-config-in
 scratch-manager-config-keymaps	scratch-manager.txt	/*scratch-manager-config-keymaps*
 scratch-manager-config-lsp	scratch-manager.txt	/*scratch-manager-config-lsp*
 scratch-manager-config-run	scratch-manager.txt	/*scratch-manager-config-run*
+scratch-manager-config-smart_persistence	scratch-manager.txt	/*scratch-manager-config-smart_persistence*
 scratch-manager-config-width	scratch-manager.txt	/*scratch-manager-config-width*
 scratch-manager-config-wrap	scratch-manager.txt	/*scratch-manager-config-wrap*
 scratch-manager-configuration	scratch-manager.txt	/*scratch-manager-configuration*
