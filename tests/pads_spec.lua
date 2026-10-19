@@ -824,6 +824,139 @@ describe("scratch-manager pads", function()
     end)
   end)
 
+  describe("=s list", function()
+    local selection = require("scratch-manager.selection")
+    local store = require("scratch-manager.store")
+    local root
+
+    -- A pad with a real file under the scratch root, a recorded source and an age
+    local function list_pad(name, ft, opts)
+      opts = opts or {}
+      local item = pad(name, ft, { create = false, cwd = opts.cwd, branch = opts.branch })
+      item.file = root .. "/list_" .. name .. "_" .. (opts.cwd and "other" or "here") .. (opts.branch or "") .. "." .. ft
+      vim.fn.writefile({ "x" }, item.file)
+      item.stat = { mtime = { sec = os.time() - (opts.age or 0) } }
+      if opts.source ~= false then
+        store.set("pad_sources", normalize(item.file), opts.source or (tmp .. "/" .. name))
+      end
+      return item
+    end
+
+    before_each(function()
+      root = vim.fn.stdpath("data") .. "/scratch"
+      vim.fn.mkdir(root, "p")
+      sm.setup({ enable_keymaps = false, indicator = { icon = "N", code_icon = "C", db_icon = "D" } })
+    end)
+
+    after_each(function()
+      selection.close()
+    end)
+
+    it("shows each pad's type in its icon and color, and its age", function()
+      list_items = { list_pad("a.lua", "markdown"), list_pad("a.lua", "lua", { age = 7200 }), list_pad("a.lua", "sql", { age = 3 * 86400 }) }
+      edit_source("a.lua")
+      local items = sm._pad_list()
+      local by_ft = {}
+      for _, item in ipairs(items) do
+        by_ft[item.ft] = item
+      end
+      assert.equals("N", by_ft.markdown.kind_icon)
+      assert.equals("ScratchManagerBorder", by_ft.markdown.kind_hl)
+      assert.equals("C", by_ft.lua.kind_icon)
+      assert.equals("ScratchManagerCodeBorder", by_ft.lua.kind_hl)
+      assert.equals("D", by_ft.sql.kind_icon)
+      assert.equals("now", by_ft.markdown.age)
+      assert.equals("2h", by_ft.lua.age)
+      assert.equals("3d", by_ft.sql.age)
+    end)
+
+    it("orders this file's pads first, then this project's, then the rest (newest first in each)", function()
+      local elsewhere = vim.fn.tempname()
+      local other_project = list_pad("z.lua", "lua", { cwd = elsewhere })
+      local same_project_old = list_pad("b.lua", "lua", { age = 500 })
+      local same_project_new = list_pad("c.lua", "lua", { age = 10 })
+      local this_file = list_pad("a.lua", "markdown", { age = 9000 })
+      list_items = { other_project, same_project_old, same_project_new, this_file }
+      edit_source("a.lua")
+      local files = vim.tbl_map(function(item) return item.file end, (sm._pad_list()))
+      assert.same({ this_file.file, same_project_new.file, same_project_old.file, other_project.file }, files)
+    end)
+
+    it("hides pads from another branch unless asked, and dims and tags pads whose source is gone", function()
+      set_branch("main")
+      local here = list_pad("a.lua", "lua", { branch = "main" })
+      local feature = list_pad("a.lua", "markdown", { branch = "feature" })
+      local orphan = list_pad("gone.lua", "lua", { branch = "main", source = tmp .. "/gone.lua" })
+      vim.fn.writefile({ "" }, tmp .. "/a.lua")
+      list_items = { here, feature, orphan }
+      edit_source("a.lua")
+
+      local items, hidden = sm._pad_list()
+      assert.equals(1, hidden)
+      assert.equals(2, #items)
+      local missing = vim.tbl_filter(function(item) return item.state == "missing" end, items)[1]
+      assert.equals("gone.lua (missing)", missing.display_name)
+      assert.is_true(missing.dim)
+
+      local all = sm._pad_list(true)
+      local other = vim.tbl_filter(function(item) return item.state == "branch" end, all)[1]
+      assert.equals(feature.file, other.file)
+      assert.is_true(other.dim)
+    end)
+
+    it("deletes the pad under the cursor, or every pad in a visual selection, after one confirmation", function()
+      local a, b, c = list_pad("a.lua", "lua"), list_pad("b.lua", "lua", { age = 60 }), list_pad("c.lua", "lua", { age = 120 })
+      list_items = { a, b, c }
+      edit_source("a.lua")
+      local asked = 0
+      vim.fn.confirm = function(question)
+        asked = asked + 1
+        assert.truthy(question:find("Delete 2 scratch pads?", 1, true))
+        return 1
+      end
+      sm.select_scratch()
+      local list_buf = selection._state.content_buf
+      assert.is_not_nil(list_buf)
+      -- rows: a (this file), b, c; select the last two and press d
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+      vim.api.nvim_feedkeys("Vjd", "x", false)
+      assert.equals(1, asked)
+      assert.equals(1, vim.fn.filereadable(a.file))
+      assert.equals(0, vim.fn.filereadable(b.file))
+      assert.equals(0, vim.fn.filereadable(c.file))
+      assert.is_nil(store.get("pad_sources", normalize(b.file)))
+
+      -- declining keeps the pad
+      selection.close()
+      list_items = { a }
+      vim.fn.confirm = function()
+        return 2
+      end
+      sm.select_scratch()
+      vim.api.nvim_feedkeys("d", "x", false)
+      assert.equals(1, vim.fn.filereadable(a.file))
+    end)
+
+    it("b shows and hides other-branch pads; o opens the pad's source file", function()
+      set_branch("main")
+      vim.fn.writefile({ "-- source" }, tmp .. "/a.lua")
+      local here = list_pad("a.lua", "lua", { branch = "main" })
+      local feature = list_pad("a.lua", "markdown", { branch = "feature" })
+      list_items = { here, feature }
+      edit_source("b.lua")
+      sm.select_scratch()
+      assert.equals(1, #selection._state.items)
+      vim.api.nvim_feedkeys("b", "x", false)
+      vim.wait(200, function() return #selection._state.items == 2 end)
+      assert.equals(2, #selection._state.items)
+
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+      selection._state.selected_idx = 1
+      vim.api.nvim_feedkeys("o", "x", false)
+      assert.equals(normalize(tmp .. "/a.lua"), normalize(vim.api.nvim_buf_get_name(0)))
+    end)
+  end)
+
   describe("autosave", function()
     -- Open a pad file under the scratch root (where snacks keeps pads) and make it unsaved
     local function edit_unsaved_pad()

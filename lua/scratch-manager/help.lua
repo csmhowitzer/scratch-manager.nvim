@@ -47,7 +47,7 @@ local function common(info)
 				{ k(km.toggle), "Notes pad (markdown) for the current file" },
 				{ k(km.toggle_lang), "Code pad in the file's language" },
 				{ k(km.toggle_db), "DB pad (SQL)" },
-				{ k(km.select), "Browse every pad" },
+				{ k(km.select), "Every pad: this file's first. `o` its source file, `d` delete (also a visual selection), `b` other branches" },
 				{ k(km.delete), "Delete a pad (asks first)" },
 				{ k(km.send), "In a source file: send the selection or function to its code pad" },
 				{ "`<M-z>`", "Toggle word wrap in this pad" },

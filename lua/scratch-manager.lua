@@ -572,21 +572,8 @@ end
 
 ---Custom scratch buffer selection (replaces snacks.scratch.select)
 ---@private
-local function custom_scratch_select()
-	local buffers = get_snacks().scratch.list()
-
-	if #buffers == 0 then
-		vim.notify("No scratch buffers found", vim.log.levels.INFO)
-		return
-	end
-
-	selection.create_custom_selection(buffers, { prompt = "Select Scratch Buffer" }, function(selected_item)
-		if selected_item then
-			-- Open the selected scratch buffer using our enhanced open_scratch function
-			M.open_scratch(selected_item)
-		end
-	end, get_config())
-end
+-- Defined below (needs the pad helpers): the =s list
+local custom_scratch_select
 
 ---Define highlight groups for scratch manager UI
 ---@private
@@ -825,13 +812,36 @@ end
 ---Remove a scratch pad: wipe its buffer (closing any windows) and delete the file
 ---@param item table Scratch item from snacks.scratch.list()
 ---@private
-local function remove_pad(item)
-	-- Wipe the buffer first so snacks' save-on-hide can't recreate the file afterwards
-	local bufnr = vim.fn.bufnr(item.file)
+---Delete a pad and everything kept for it: its buffer (wiped first, so snacks' save-on-hide or
+---autosave can't write the file back), the file, its remembered source and DB connection, its run
+---directory and its language server mirror
+---@param file string Pad file
+---@param ft string|nil Pad filetype
+---@return boolean deleted
+local function delete_pad_file(file, ft)
+	file = vim.fs.normalize(file)
+	local bufnr = vim.fn.bufnr(file)
+	local mirror = bufnr > 0 and pad_lsp.mirror(bufnr) or nil
 	if bufnr > 0 and vim.api.nvim_buf_is_valid(bufnr) then
 		pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
 	end
-	if vim.fn.filereadable(item.file) == 1 and vim.fn.delete(item.file) ~= 0 then
+	if vim.fn.filereadable(file) == 1 and vim.fn.delete(file) ~= 0 then
+		return false
+	end
+	for _, name in ipairs({ "pad_sources", "sql_connections" }) do
+		if store.get(name, file) ~= nil then
+			store.set(name, file, nil)
+		end
+	end
+	vim.fn.delete(runner.work_dir(file, ft), "rf")
+	if mirror then
+		vim.fn.delete(vim.fs.dirname(mirror), "rf")
+	end
+	return true
+end
+
+local function remove_pad(item)
+	if not delete_pad_file(item.file, item.ft) then
 		vim.notify("Failed to delete scratch pad: " .. item.file, vim.log.levels.ERROR)
 		return
 	end
@@ -980,6 +990,177 @@ local function kind_text(kind, count)
 		return icon .. " " .. count
 	end
 	return icon
+end
+
+---Short age: "now", "5m", "3h", "2d", "4w", "8mo", "1y"
+---@param mtime number|nil Seconds since the epoch
+---@return string
+local function age_text(mtime)
+	if not mtime then
+		return ""
+	end
+	local seconds = math.max(0, os.time() - mtime)
+	for _, step in ipairs({ { 31536000, "y" }, { 2592000, "mo" }, { 604800, "w" }, { 86400, "d" }, { 3600, "h" }, { 60, "m" } }) do
+		if seconds >= step[1] then
+			return math.floor(seconds / step[1]) .. step[2]
+		end
+	end
+	return "now"
+end
+
+---The =s list: every pad with its type, age and state, ordered this file → this project → the rest
+---(newest first in each). Pads from another branch (than their project is on now) are left out
+---unless show_all; pads whose source file is gone are kept, dimmed and tagged.
+---@param show_all boolean|nil Include pads from other branches
+---@return table[] items
+---@return number hidden Pads left out (other branches)
+local function pad_list(show_all)
+	local ok, buffers = pcall(function()
+		return get_snacks().scratch.list()
+	end)
+	if not ok or type(buffers) ~= "table" then
+		return {}, 0
+	end
+	local context_buf = context_source()
+	local mine = {}
+	if context_buf then
+		for _, item in ipairs(M.find_scratch_pads(buffers, get_buffer_config(context_buf))) do
+			mine[item.file] = true
+		end
+	end
+	local cwd = vim.fs.normalize((vim.uv or vim.loop).cwd())
+	local sources = store.read("pad_sources")
+	local branches = {}
+	local items, hidden = {}, 0
+	for _, item in ipairs(buffers) do
+		local entry = vim.tbl_extend("force", {}, item)
+		local kind = pad_kind(item.ft)
+		local item_cwd = item.cwd and vim.fs.normalize(item.cwd) or ""
+		entry.kind_icon = kind_text(kind, 1)
+		entry.kind_hl = border_hl(kind)
+		entry.mtime = item.stat and item.stat.mtime and item.stat.mtime.sec or 0
+		entry.age = age_text(entry.mtime > 0 and entry.mtime or nil)
+		entry.group = mine[item.file] and 1 or (item_cwd == cwd and 2 or 3)
+		entry.source = sources[vim.fs.normalize(item.file)]
+		if entry.source and vim.fn.filereadable(entry.source) == 0 then
+			entry.state = "missing"
+			entry.display_name = get_scratch_filename(item.name) .. " (missing)"
+		elseif (item.branch or "") ~= "" and item_cwd ~= "" then
+			if branches[item_cwd] == nil then
+				branches[item_cwd] = utils.get_git_branch(item_cwd)
+			end
+			if branches[item_cwd] ~= item.branch then
+				entry.state = "branch"
+			end
+		end
+		entry.dim = entry.state ~= nil
+		if entry.state == "branch" and not show_all then
+			hidden = hidden + 1
+		else
+			table.insert(items, entry)
+		end
+	end
+	table.sort(items, function(a, b)
+		if a.group ~= b.group then
+			return a.group < b.group
+		end
+		return a.mtime > b.mtime
+	end)
+	return items, hidden
+end
+
+---Show the =s list
+---@param state { show_all: boolean|nil, index: number|nil }|nil
+custom_scratch_select = function(state)
+	state = state or {}
+	local items, hidden = pad_list(state.show_all)
+	if #items == 0 and hidden > 0 then
+		state.show_all = true
+		items, hidden = pad_list(true)
+	end
+	if #items == 0 then
+		vim.notify("No scratch pads yet", vim.log.levels.INFO)
+		return
+	end
+	local counter = ("%d pad%s"):format(#items, #items == 1 and "" or "s")
+	if hidden > 0 then
+		counter = counter .. (" · %d on other branches (b)"):format(hidden)
+	elseif state.show_all then
+		counter = counter .. " · all branches (b)"
+	end
+	local function reopen(index)
+		vim.schedule(function()
+			custom_scratch_select({ show_all = state.show_all, index = index })
+		end)
+	end
+	selection.create_custom_selection(items, {
+		prompt = " Scratch Pads ",
+		counter_text = counter,
+		start_idx = state.index,
+		hints = " <CR> open · o source · d delete · b branches · q quit ",
+		actions = {
+			d = {
+				desc = "Delete pads",
+				modes = { "n", "x" },
+				fn = function(chosen, index)
+					local names = vim.tbl_map(function(item)
+						return ("  %s (%s)"):format(get_scratch_filename(item.name), item.ft)
+					end, chosen)
+					local question = (#chosen == 1 and "Delete scratch pad?" or ("Delete %d scratch pads?"):format(#chosen))
+						.. "\n" .. table.concat(names, "\n")
+					if vim.fn.confirm(question, "&Yes\n&No", 2) ~= 1 then
+						return
+					end
+					local deleted = 0
+					for _, item in ipairs(chosen) do
+						if delete_pad_file(item.file, item.ft) then
+							deleted = deleted + 1
+						end
+					end
+					vim.notify(("Deleted %d scratch pad%s"):format(deleted, deleted == 1 and "" or "s"), vim.log.levels.INFO)
+					selection.close()
+					pcall(M.refresh_indicator)
+					if #items > deleted then
+						reopen(index)
+					end
+				end,
+			},
+			o = {
+				desc = "Open the pad's source file",
+				fn = function(chosen)
+					local item = chosen[1]
+					if not item.source then
+						vim.notify("This pad's source file isn't known", vim.log.levels.INFO)
+						return
+					end
+					if vim.fn.filereadable(item.source) == 0 then
+						vim.notify("Source file is gone: " .. item.source, vim.log.levels.WARN)
+						return
+					end
+					selection.close()
+					local win = context_window()
+					if win then
+						vim.api.nvim_set_current_win(win)
+					end
+					vim.cmd.edit(vim.fn.fnameescape(item.source))
+				end,
+			},
+			b = {
+				desc = "Show or hide pads from other branches",
+				fn = function(_, index)
+					selection.close()
+					state.show_all = not state.show_all
+					vim.schedule(function()
+						custom_scratch_select({ show_all = state.show_all, index = index })
+					end)
+				end,
+			},
+		},
+	}, function(selected_item)
+		if selected_item then
+			M.open_scratch(selected_item)
+		end
+	end, get_config())
 end
 
 ---Pad counts per kind for the current buffer (cached by refresh_indicator)
@@ -1453,25 +1634,7 @@ local function forget_empty_pad(bufnr)
 	if not languages.is_empty(ft, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) then
 		return
 	end
-	local file = vim.fs.normalize(vim.api.nvim_buf_get_name(bufnr))
-	local mirror = pad_lsp.mirror(bufnr)
-	-- Wipe first so nothing (snacks' save-on-hide, autosave) writes the file back
-	pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
-	if vim.fn.filereadable(file) == 1 then
-		vim.fn.delete(file)
-	end
-	if store.get("pad_sources", file) ~= nil then
-		store.set("pad_sources", file, nil)
-	end
-	for _, name in ipairs({ "sql_connections" }) do
-		if store.get(name, file) ~= nil then
-			store.set(name, file, nil)
-		end
-	end
-	vim.fn.delete(runner.work_dir(file, ft), "rf")
-	if mirror then
-		vim.fn.delete(vim.fs.dirname(mirror), "rf")
-	end
+	delete_pad_file(vim.api.nvim_buf_get_name(bufnr), ft)
 	pcall(M.refresh_indicator)
 end
 
@@ -1536,6 +1699,12 @@ end
 
 ---Current pad size step (1 = default, 2 = two thirds, 3 = nearly full); for tests
 ---@return number
+---The =s list items (for tests)
+---@param show_all boolean|nil
+function M._pad_list(show_all)
+	return pad_list(show_all)
+end
+
 function M._pad_size()
 	return pad_size
 end

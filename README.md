@@ -171,7 +171,7 @@ vim.keymap.set("n", "<leader>sl", function() sm.toggle_scratch_pad("lua") end, {
 | `=h` | Pad help | Inside a pad: what `<CR>` does there, keys, tips (C#, SQL, Lua, notes) |
 | `=w` | Pad size | Inside a pad: ⅓ of the screen → ⅔ → nearly full (centered); stays for the session |
 | `=l` | Watch mode | Inside a C# pad: rerun ~0.5s after each edit while it has a `.Dump()`, quietly (output only for errors/prints). Off at start; on per pad while it's open (closing or leaving the pad turns it off) |
-| `=s` | Select Scratch | Choose from existing scratch buffers |
+| `=s` | Pad list | Every pad: this file's first, then this project's, then the rest (newest first). The icon shows the pad type; dimmed pads are from another branch or their source file is gone. `<CR>` open, `o` open its source file, `d` delete (or every pad in a visual selection; asks first), `b` show/hide pads from other branches |
 | `=d` | Delete Scratch | Delete the scratch pad (asks for confirmation; works from the pad or its source buffer) |
 
 ### Pad size

@@ -46,7 +46,7 @@ function M.pad(text, width)
   return missing > 0 and (text .. string.rep(" ", missing)) or text
 end
 
-function M.format_columns(selector, icon, filename, branch, cwd, widths, config, counter_text, win_width)
+function M.format_columns(selector, icon, filename, branch, cwd, widths, config, counter_text, win_width, age)
   -- Detect if this is a header row (filename is "Filename")
   local is_header = filename == "Filename"
 
@@ -69,6 +69,12 @@ function M.format_columns(selector, icon, filename, branch, cwd, widths, config,
 
     -- Always include filename
     table.insert(parts, M.pad(filename, widths.filename_width))
+  end
+
+  -- Age column (pads: how long since the pad changed), right-aligned
+  if (widths.age_width or 0) > 0 then
+    local text = age or ""
+    table.insert(parts, string.rep(" ", math.max(0, widths.age_width - vim.fn.strdisplaywidth(text))) .. text)
   end
 
   -- Include branch column if enabled and branch provided
@@ -243,6 +249,7 @@ function M.analyze_content_lengths(items, config)
   local max_filename = 0
   local max_branch = 0
   local max_cwd = 0
+  local max_age = 0
 
   -- Helper function to get scratch filename (matches ui.lua logic)
   local function get_scratch_filename(name)
@@ -253,19 +260,21 @@ function M.analyze_content_lengths(items, config)
 
   -- Find the longest content in each column
   for _, item in ipairs(items) do
-    local filename = get_scratch_filename(item.name or "")
+    local filename = item.display_name or get_scratch_filename(item.name or "")
     local branch = config.ui.show_git_branch and (item.branch or "") or ""
     local cwd = item.cwd and vim.fn.fnamemodify(item.cwd, ":p:~") or ""
 
     max_filename = math.max(max_filename, vim.fn.strdisplaywidth(filename))
     max_branch = math.max(max_branch, vim.fn.strdisplaywidth(branch))
     max_cwd = math.max(max_cwd, vim.fn.strdisplaywidth(cwd))
+    max_age = math.max(max_age, vim.fn.strdisplaywidth(item.age or ""))
   end
 
   return {
     max_filename = max_filename,
     max_branch = max_branch,
     max_cwd = max_cwd,
+    max_age = max_age > 0 and math.max(max_age, 3) or 0, -- room for the "Age" header
   }
 end
 
@@ -289,6 +298,7 @@ function M.calculate_ideal_widths(content_analysis, config)
     branch_width = math.min(branch_width, config.ui.branch_width)
   end
   local cwd_width = config.ui.show_path and content_analysis.max_cwd or 0
+  local age_width = content_analysis.max_age or 0
 
   -- Calculate padding based on visible columns (spaces between columns)
   local visible_columns = 1 -- selector always visible
@@ -296,9 +306,10 @@ function M.calculate_ideal_widths(content_analysis, config)
   visible_columns = visible_columns + 1 -- filename always visible
   if config.ui.show_git_branch then visible_columns = visible_columns + 1 end
   if config.ui.show_path then visible_columns = visible_columns + 1 end
+  if age_width > 0 then visible_columns = visible_columns + 1 end
   local padding = (visible_columns - 1) * constants.COLUMN_PADDING_SPACES
 
-  local ideal_width = selector_width + icon_width + filename_width + branch_width + cwd_width + padding
+  local ideal_width = selector_width + icon_width + filename_width + age_width + branch_width + cwd_width + padding
 
   return {
     ideal_width = ideal_width,
@@ -309,6 +320,7 @@ function M.calculate_ideal_widths(content_analysis, config)
       filename_width = filename_width,
       branch_width = branch_width,
       cwd_width = cwd_width,
+      age_width = age_width,
     }
   }
 end
@@ -330,7 +342,8 @@ function M.apply_layout_constraints(width_calculation, config)
 
   -- If we hit max width, we need to truncate proportionally
   if ideal_width > max_width then
-    local available_width = max_width - column_widths.selector_width - column_widths.icon_width - padding
+    local available_width = max_width - column_widths.selector_width - column_widths.icon_width
+      - (column_widths.age_width or 0) - padding
     local total_content_width = column_widths.filename_width + column_widths.branch_width + column_widths.cwd_width
 
     if total_content_width > 0 then

@@ -521,7 +521,17 @@ pad_watch               =l              Inside a C# pad: watch mode. Reruns
                                         start: on per pad, only while the
                                         pad is open (closing or leaving it
                                         turns it off); ◉ watch shows while on
-select                  =s              Select from existing scratch buffers
+select                  =s              Pad list: every pad, this file's
+                                        first, then this project's, then
+                                        the rest (newest first). The icon
+                                        shows the pad type. Dimmed: from
+                                        another branch, or its source file
+                                        is gone ("missing"). Pads from other
+                                        branches are hidden until `b`.
+                                        Keys: <CR> open, `o` its source
+                                        file, `d` delete (a visual selection
+                                        deletes all of it; asks first),
+                                        `b` other branches, `q` close
 delete                  =d              Delete current scratch buffer
 
 Custom keymaps:~

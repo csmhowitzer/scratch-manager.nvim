@@ -43,13 +43,19 @@ function M.format_item_line(item, widths, is_selected, config)
 	-- Extract components from item
 
 	-- Extract components
-	local filename = get_scratch_filename(item.name or "")
+	local filename = item.display_name or get_scratch_filename(item.name or "")
 	local cwd = item.cwd and vim.fn.fnamemodify(item.cwd, ":p:~") or ""
 	-- Branch the pad was created on (part of the snacks filekey), not the directory's current branch
 	local branch = config.ui.show_git_branch and (item.branch or "") or nil
 
-	-- Get icon with proper fallback handling
-	local icon, icon_hl = utils.get_display_icon(filename, item.ft, config.ui.show_icon)
+	-- The pad's own icon and color when the list provides them (its type: notes, code, DB), else the
+	-- source file's icon
+	local icon, icon_hl
+	if config.ui.show_icon and item.kind_icon then
+		icon, icon_hl = item.kind_icon, item.kind_hl
+	else
+		icon, icon_hl = utils.get_display_icon(filename, item.ft, config.ui.show_icon)
+	end
 
 	-- Apply truncation to all text fields
 	filename = utils.truncate_text(filename, widths.filename_width)
@@ -59,7 +65,7 @@ function M.format_item_line(item, widths, is_selected, config)
 	cwd = utils.smart_truncate_path(cwd, widths.cwd_width)
 
 	-- Use centralized formatting to ensure consistency with header
-	local formatted_line = utils.format_columns(" ", icon, filename, branch, cwd, widths, config)
+	local formatted_line = utils.format_columns(" ", icon, filename, branch, cwd, widths, config, nil, nil, item.age)
 
 	-- Calculate icon highlight position if we have colored icons and icons are enabled
 	local highlights = nil

@@ -32,6 +32,7 @@ local selection_ui = {
 	callback = nil,
 	selected_idx = 1,
 	max_visible_items = 20, -- Will be set from config
+	opts = {},
 }
 
 ---Close the selection UI
@@ -60,6 +61,7 @@ local function close_selection_ui()
 	selection_ui.items = {}
 	selection_ui.callback = nil
 	selection_ui.selected_idx = 1
+	selection_ui.opts = {}
 end
 
 ---Create header window with sticky header content
@@ -75,8 +77,8 @@ local function create_header_window(config, layout, win_config)
 	selection_ui.header_buf = vim.api.nvim_create_buf(false, true)
 
 	-- Build header lines with optional file counter
-	local counter_text = nil
-	if config.ui.file_counter then
+	local counter_text = selection_ui.opts.counter_text
+	if not counter_text and config.ui.file_counter then
 		local file_count = #selection_ui.items
 		counter_text = string.format("%d files", file_count)
 	end
@@ -90,7 +92,8 @@ local function create_header_window(config, layout, win_config)
 		widths,
 		config,
 		counter_text, -- Will be nil if file_counter is disabled
-		win_width -- Add window width for right-alignment calculation
+		win_width, -- Add window width for right-alignment calculation
+		(widths.age_width or 0) > 0 and "Age" or nil
 	)
 	local separator_width = win_width - 2 -- Account for window borders
 	local separator = string.rep("─", separator_width)
@@ -175,6 +178,15 @@ local function create_content_window(config, layout, win_config)
 	})
 
 	selection_ui.content_win = vim.api.nvim_open_win(selection_ui.content_buf, true, content_config)
+
+	-- Dimmed rows (e.g. pads from another branch, or whose source file is gone), under the icon color
+	local dim_ns_id = vim.api.nvim_create_namespace("scratch-manager-dim")
+	vim.api.nvim_set_hl(0, "ScratchManagerSelectDim", { link = "Comment", default = true })
+	for i, item in ipairs(selection_ui.items) do
+		if item.dim then
+			add_highlight(selection_ui.content_buf, dim_ns_id, "ScratchManagerSelectDim", i - 1, 0, -1)
+		end
+	end
 
 	-- Apply icon highlighting
 	local icon_ns_id = vim.api.nvim_create_namespace("scratch-manager-icons")
@@ -276,7 +288,8 @@ function M.create_custom_selection(items, opts, callback, config)
 
 	selection_ui.items = items
 	selection_ui.callback = callback
-	selection_ui.selected_idx = 1
+	selection_ui.opts = opts or {}
+	selection_ui.selected_idx = math.max(1, math.min(selection_ui.opts.start_idx or 1, #items))
 	selection_ui.max_visible_items = config.selection.max_items
 
 	-- Calculate optimal window size and column widths
@@ -285,13 +298,13 @@ function M.create_custom_selection(items, opts, callback, config)
 
 	-- Calculate height for window scrolling approach
 	local max_visible_items = selection_ui.max_visible_items
-	local base_height = 2 + max_visible_items -- header + separator + max items
+	local base_height = 2 + math.min(#items, max_visible_items) -- header + separator + items (fits the list)
 
 	-- Respect screen size limits
 	local constants = utils.get_layout_constants()
 	local height = math.min(base_height, math.floor(vim.o.lines * constants.SCREEN_HEIGHT_RATIO))
 
-	local action_hints = "<CR> Select, <Esc> quit"
+	local action_hints = selection_ui.opts.hints or "<CR> Select, <Esc> quit"
 
 	-- Base window configuration
 	local base_win_opts = {
@@ -352,12 +365,40 @@ function M.create_custom_selection(items, opts, callback, config)
 		handle_selection_key("q", config)
 	end, keymap_opts)
 
-	-- Close on buffer leave (content buffer)
+	-- Extra keys (opts.actions): key -> { fn = function(items, idx), modes = { "n", "x" } }. In visual
+	-- mode the action gets every selected row. The action decides whether to close the list.
+	for key, action in pairs(selection_ui.opts.actions or {}) do
+		vim.keymap.set(action.modes or "n", key, function()
+			local first, last = selection_ui.selected_idx, selection_ui.selected_idx
+			local mode = vim.fn.mode()
+			if mode == "v" or mode == "V" or mode == "\22" then
+				first, last = vim.fn.line("v"), vim.fn.line(".")
+				if first > last then
+					first, last = last, first
+				end
+				vim.api.nvim_feedkeys(vim.keycode("<Esc>"), "nx", false)
+			end
+			local chosen = {}
+			for i = math.max(1, first), math.min(last, #selection_ui.items) do
+				table.insert(chosen, selection_ui.items[i])
+			end
+			if #chosen > 0 then
+				action.fn(chosen, first)
+			end
+		end, vim.tbl_extend("force", keymap_opts, { desc = action.desc }))
+	end
+
+	-- Close on buffer leave (content buffer). Scheduled, so it must not close a newer list opened
+	-- in the meantime (actions reopen the list)
+	local list_buf = selection_ui.content_buf
 	vim.api.nvim_create_autocmd("BufLeave", {
-		buffer = selection_ui.content_buf,
+		buffer = list_buf,
 		once = true,
 		callback = function()
 			vim.schedule(function()
+				if selection_ui.content_buf ~= list_buf then
+					return
+				end
 				if selection_ui.callback then
 					selection_ui.callback(nil)
 				end
@@ -371,6 +412,9 @@ function M.create_custom_selection(items, opts, callback, config)
 end
 
 -- Expose internal functions for testing (following established pattern)
+---Close the list without choosing (for actions that continue elsewhere)
+M.close = close_selection_ui
+M._state = selection_ui
 M._close_selection_ui = close_selection_ui
 M._create_header_window = create_header_window
 M._create_content_window = create_content_window
