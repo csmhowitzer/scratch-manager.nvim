@@ -372,6 +372,69 @@ describe("scratch-manager pads", function()
       assert.is_not_nil(badge.get_win("db"))
     end)
 
+    describe("visiting another file's pad (opened from the =s list)", function()
+      -- bar.lua is open in the editor; baz.lua's notes pad is shown in a float, like after picking it in =s
+      local function visit()
+        sm.setup({ enable_keymaps = false, indicator = { float = true, layout = "column" } })
+        local root = vim.fn.stdpath("data") .. "/scratch"
+        vim.fn.mkdir(root, "p")
+        local bar = edit_source("bar.lua")
+        local baz_name = tmp .. "/baz.lua"
+        local items = {}
+        for _, spec in ipairs({ { "bar.lua", "markdown" }, { "bar.lua", "lua" }, { "baz.lua", "markdown" } }) do
+          local item = pad(spec[1], spec[2], { create = false })
+          item.file = root .. "/visit_" .. spec[1] .. "." .. spec[2]
+          vim.fn.writefile({ "x" }, item.file)
+          table.insert(items, item)
+        end
+        list_items = items
+        local baz_md = items[3]
+        local buf = vim.fn.bufadd(baz_md.file)
+        vim.fn.bufload(buf)
+        vim.bo[buf].filetype = "markdown"
+        vim.b[buf].scratch_manager_source = baz_name
+        local win = vim.api.nvim_open_win(buf, true, { relative = "editor", row = 1, col = 1, width = 30, height = 5, border = "rounded" })
+        return bar, items, buf, win
+      end
+
+      it("== opens the current file's notes pad instead of closing (not its own)", function()
+        local bar, items = visit()
+        sm.toggle_scratch_pad("markdown")
+        assert.equals(items[3].file, calls[#calls - 1].opts.file) -- the visited pad is closed
+        assert.equals(items[1].file, calls[#calls].opts.file) -- bar.lua's notes pad opens
+        assert.equals(bar, vim.api.nvim_get_current_buf())
+      end)
+
+      it("=c opens the current file's code pad", function()
+        local _, items = visit()
+        sm.toggle_scratch_pad()
+        assert.equals(items[2].file, calls[#calls].opts.file)
+      end)
+
+      it("shows the current file's badges, without a connector to the visited pad", function()
+        visit()
+        sm.refresh_indicator()
+        local badge = require("scratch-manager.badge")
+        assert.is_not_nil(badge.get_win("notes"))
+        assert.is_not_nil(badge.get_win("code")) -- bar.lua has a code pad; baz.lua doesn't
+        assert.is_nil(badge._connector.win)
+      end)
+
+      it("its own pad still closes with its own key", function()
+        local bar, items = visit()
+        -- now bar.lua's own notes pad is the one shown
+        local buf = vim.fn.bufadd(items[1].file)
+        vim.fn.bufload(buf)
+        vim.bo[buf].filetype = "markdown"
+        vim.b[buf].scratch_manager_source = vim.api.nvim_buf_get_name(bar)
+        vim.api.nvim_win_set_buf(0, buf)
+        local before = #calls
+        sm.toggle_scratch_pad("markdown")
+        assert.equals(before + 1, #calls) -- just closed
+        assert.equals(items[1].file, calls[#calls].opts.file)
+      end)
+    end)
+
     it("still just closes the pad with its own kind's key, or when its source is unknown", function()
       sm.setup({ enable_keymaps = false })
       local lua_pad = pad("bar.lua", "lua")
