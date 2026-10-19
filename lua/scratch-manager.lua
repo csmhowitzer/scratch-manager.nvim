@@ -54,6 +54,8 @@ local store = require("scratch-manager.store")
 ---@field float boolean Show clickable floating badges (notes, code, db) in the top-right corner (default: false)
 ---@field animate boolean Grow the pad out of the badge when it is clicked (default: false)
 ---@field transparent boolean Badges use the editor background like the pads; false: float background (default: true)
+---@field layout "row"|"column" Badges side by side in the top-right corner, or stacked down the right edge;
+---  "column" also keeps pads clear of the badges (shifted left) and shows them while a pad is open (default: "row")
 
 ---@class ScratchManagerConfig
 ---@field width number|nil Window width (defaults to 1/3 of screen, max 100)
@@ -188,6 +190,7 @@ local default_config = {
 		float = false,
 		animate = false,
 		transparent = true, -- badges blend in like the pads; false for the regular float background
+		layout = "row", -- "row": side by side in the top-right corner; "column": stacked down the right edge
 	},
 }
 
@@ -269,18 +272,66 @@ end
 -- the screen on the right, 3 = nearly the full width (centered, with margins so it still reads as a popup)
 local pad_size = 1
 
+---How many badges there will be with this pad open: the source file's pad kinds, plus the kind
+---being opened. From inside a pad (`=w`), the pad's source file counts.
+---@param ft string|nil Filetype of the pad being opened or resized
+---@return number
+local function badge_count(ft)
+	local bufnr = vim.api.nvim_get_current_buf()
+	if vim.b[bufnr].scratch_manager_pad and vim.b[bufnr].scratch_manager_source then
+		local source = vim.fn.bufnr(vim.b[bufnr].scratch_manager_source)
+		ft = ft or vim.bo[bufnr].filetype
+		bufnr = source > 0 and source or bufnr
+	end
+	local kinds = vim.b[bufnr].scratch_manager_pad_kinds
+	kinds = type(kinds) == "table" and vim.deepcopy(kinds) or {}
+	if ft then
+		local kind = pad_kind(ft)
+		kinds[kind] = math.max(kinds[kind] or 0, 1)
+	end
+	local count = 0
+	for _, n in pairs(kinds) do
+		count = count + ((n or 0) > 0 and 1 or 0)
+	end
+	return count
+end
+
+---Columns kept free on the right for stacked badges (indicator.layout = "column"), so pads don't
+---cover them: the widest badge (icon + a one-digit count, padding, borders) plus a margin and a gap.
+---None with a single badge: there is nothing to switch to, so the pad takes the space.
+---@param ft string|nil Filetype of the pad being opened or resized
+---@return number
+local function badge_gutter(ft)
+	local indicator = get_config().indicator or {}
+	if not indicator.float or indicator.enabled == false or indicator.layout ~= "column" then
+		return 0
+	end
+	if badge_count(ft) < 2 then
+		return 0
+	end
+	local widest = 0
+	for _, key in ipairs({ "icon", "code_icon", "db_icon" }) do
+		local icon = indicator[key] or default_config.indicator[key] or ""
+		widest = math.max(widest, vim.api.nvim_strwidth(icon) + (indicator.show_count ~= false and 2 or 0))
+	end
+	return widest + 2 + 2 + 2 -- padding, borders, margin + gap
+end
+
 ---Width and column for the current pad size
 ---@param width number Default width
+---@param ft string|nil Pad filetype (stacked badges may need room)
 ---@return number width
 ---@return number col
-local function sized(width)
-	local columns = vim.o.columns
+local function sized(width, ft)
+	local gutter = badge_gutter(ft)
+	local columns = vim.o.columns - gutter
 	if pad_size == 2 then
 		local w = math.floor(columns * 2 / 3)
 		return w, columns - w
 	elseif pad_size == 3 then
-		local margin = math.max(2, math.floor(columns * 0.05))
-		return columns - margin * 2 - 2, margin -- 2 for the borders
+		local margin = math.max(2, math.floor(vim.o.columns * 0.05))
+		-- the right margin also leaves room for stacked badges
+		return vim.o.columns - margin - math.max(margin, gutter) - 2, margin -- 2 for the borders
 	end
 	return width, columns - width
 end
@@ -340,6 +391,7 @@ local function pad_keys(ft)
 					height = opts.height,
 				})
 				runner.relayout(self.win)
+				pcall(M.refresh_indicator) -- the badge connector follows the pad's edge
 			end,
 			desc = "Size",
 		}
@@ -369,7 +421,7 @@ function get_window_options(width, height, ft)
 	width = width or config.width or math.min(math.floor(vim.o.columns / 3), 100)
 	height = height or config.height or default_window_height()
 	local col
-	width, col = sized(width)
+	width, col = sized(width, ft)
 
 	local wo = {
 		winhighlight = "FloatBorder:" .. border_hl(pad_kind(ft)) .. ",FloatTitle:ScratchManagerTitle,",
@@ -753,6 +805,15 @@ end
 ---@return { notes: number, code: number, db: number }
 local function current_kinds()
 	local kinds = vim.b.scratch_manager_pad_kinds
+	-- Stacked badges stay visible next to an open pad: inside a pad, show its source file's pads
+	if (get_config().indicator or {}).layout == "column" then
+		local name = vim.fs.normalize(vim.api.nvim_buf_get_name(0))
+		if name ~= "" and vim.startswith(name, scratch_root() .. "/") then
+			local source = vim.b.scratch_manager_source or store.get("pad_sources", name)
+			local source_buf = source and vim.fn.bufnr(source) or -1
+			kinds = source_buf > 0 and vim.b[source_buf].scratch_manager_pad_kinds or nil
+		end
+	end
 	return type(kinds) == "table" and kinds or { notes = 0, code = 0, db = 0 }
 end
 
@@ -771,7 +832,10 @@ local function update_badge()
 		return
 	end
 	local kinds = current_kinds()
+	local column = indicator.layout == "column"
 	local right = vim.o.columns - 1 -- one cell of margin from the editor edge
+	-- Stacked badges start level with the pads' top border
+	local row = column and math.max(badge.tabline_height(), get_window_options().row) or badge.tabline_height()
 	for _, kind in ipairs(KINDS) do
 		local count = kinds[kind] or 0
 		if count > 0 then
@@ -779,12 +843,30 @@ local function update_badge()
 			local col = right - (badge.width(text) + 2) -- + 2 border cells
 			badge.show(kind, text, col, border_hl(kind), function()
 				M.open_pad_from_badge(kind)
-			end, { transparent = indicator.transparent })
-			right = col - 1 -- one cell gap between badges
+			end, { transparent = indicator.transparent, row = row })
+			if column then
+				row = row + 3 -- stacked: next badge below this one (1 line + 2 borders)
+			else
+				right = col - 1 -- one cell gap between badges
+			end
 		else
 			badge.hide(kind)
 		end
 	end
+	-- Stacked badges: join the open pad's border to its badge, marking it as the selected one
+	-- (the connector window is moved, not reopened)
+	if column then
+		for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+			local buf = vim.api.nvim_win_get_buf(win)
+			local name = vim.fs.normalize(vim.api.nvim_buf_get_name(buf))
+			if vim.api.nvim_win_get_config(win).relative ~= "" and name ~= ""
+				and vim.startswith(name, scratch_root() .. "/") then
+				local kind = pad_kind(vim.bo[buf].filetype)
+				return badge.connect(kind, win, border_hl(kind))
+			end
+		end
+	end
+	badge.disconnect()
 end
 
 ---Recompute whether a buffer has scratch pads and cache it in `vim.b.scratch_manager_pads`
@@ -873,6 +955,26 @@ function M.open_pad_from_badge(kind)
 				target = win
 				break
 			end
+		end
+	end
+	-- Clicked while a pad is open (stacked badges stay visible): close it; its own badge just
+	-- closes it, another kind's badge opens that pad for the same source file instead
+	local shown = vim.fs.normalize(vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(target)))
+	if shown ~= "" and vim.startswith(shown, scratch_root() .. "/") then
+		local open_kind = pad_kind(vim.bo[vim.api.nvim_win_get_buf(target)].filetype)
+		pcall(vim.api.nvim_win_close, target, false)
+		target = nil
+		for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+			if vim.api.nvim_win_get_config(win).relative == "" then
+				target = win
+				break
+			end
+		end
+		if not target or open_kind == kind then
+			if target then
+				vim.api.nvim_set_current_win(target)
+			end
+			return
 		end
 	end
 	vim.api.nvim_set_current_win(target)
@@ -1342,7 +1444,11 @@ local function setup_indicator()
 	-- source buffer fires no BufEnter.
 	vim.api.nvim_create_autocmd({ "BufEnter", "DirChanged", "TabEnter", "WinClosed" }, {
 		group = group,
-		callback = function()
+		callback = function(args)
+			-- The badges' own windows closing (moved or hidden by an update) must not start another update
+			if args.event == "WinClosed" and badge.is_own_win(tonumber(args.match) or -1) then
+				return
+			end
 			-- Deferred: when a pad window closes, snacks writes the pad after these events (its
 			-- autowrite runs without nested autocmds, so BufWritePost below doesn't see it either).
 			-- pcall: never let a broken snacks install break buffer switching.

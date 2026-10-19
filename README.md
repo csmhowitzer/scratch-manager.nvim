@@ -112,6 +112,8 @@ require("scratch-manager").setup({
     float = false,                -- Clickable notes/code badges in the top-right corner
     animate = false,              -- Grow the pad out of the badge when clicked
     transparent = true,           -- Badges use the editor background like the pads (false: float background)
+    layout = "row",               -- "row": side by side top-right; "column": stacked down the right edge,
+                                  -- pads shift left to keep them visible and they stay up while a pad is open
   },
   run = {
     cs = {

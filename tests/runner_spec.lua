@@ -195,7 +195,7 @@ describe("scratch-manager.runner", function()
     local function virt_texts(buf)
       local out = {}
       for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
-        if m[4].virt_text and m[4].virt_text[1][1] ~= "◉ watch" then -- values only, not the watch marker
+        if m[4].virt_text and not m[4].virt_text[1][1]:find("◉ watch", 1, true) then -- values only, not the watch marker
           out[m[2] + 1] = m[4].virt_text[1][1]
         end
       end
@@ -311,7 +311,7 @@ describe("scratch-manager.runner", function()
         assert.equals(2, runs())
         local marks = vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })
         local watch_mark = vim.tbl_filter(function(m)
-          return m[4].virt_text and m[4].virt_text[1][1] == "◉ watch"
+          return m[4].virt_text and m[4].virt_text[1][1] == "◉ watch  "
         end, marks)
         assert.equals(1, #watch_mark)
       end)

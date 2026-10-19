@@ -121,6 +121,7 @@ Default configuration:~
       float = false,                -- Clickable notes/code badges, top-right
       animate = false,              -- Grow the pad out of the badge on click
       transparent = true,           -- Badges blend in like the pads
+      layout = "row",               -- "row" (top-right) or "column" (right edge)
     },
     run = {
       cs = {
@@ -244,6 +245,13 @@ indicator               (table)
     • transparent (boolean) Badges use the editor background, like the
                            pad windows. false: the regular floating-window
                            background. Default: true
+    • layout (string)      "row": badges side by side in the top-right
+                           corner. "column": stacked down the right edge;
+                           pads open shifted left so the badges stay
+                           visible and clickable, and they stay up while a
+                           pad is open (clicking the open pad's badge
+                           closes it, another badge switches to that pad).
+                           Default: "row"
 
 *scratch-manager-config-run*
 run                     (table)

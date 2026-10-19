@@ -600,7 +600,7 @@ function M.watch(bufnr, ft, config, on)
 		end,
 	})
 	vim.api.nvim_buf_set_extmark(bufnr, watch_ns, 0, 0, {
-		virt_text = { { "◉ watch", "ScratchManagerDump" } },
+		virt_text = { { "◉ watch  ", "ScratchManagerDump" } }, -- a little room before the edge
 		virt_text_pos = "right_align",
 	})
 	if watchable(bufnr, ft) then

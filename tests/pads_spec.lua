@@ -921,6 +921,135 @@ describe("scratch-manager pads", function()
         assert.equals(vim.o.columns - 1 - 5, vim.api.nvim_win_get_config(badge.get_win("code")).col)
       end)
 
+      it("stacks the badges down the right edge with layout = column, and keeps pads clear of them", function()
+        vim.o.columns = 150
+        local indicator = { float = true, icon = "N", code_icon = "C", db_icon = "D", layout = "column" }
+        sm.setup({ enable_keymaps = false, indicator = indicator })
+        list_items = { pad("bar.lua", "markdown"), pad("bar.lua", "lua"), pad("bar.lua", "sql") }
+        edit_source("bar.lua")
+        sm.refresh_indicator()
+        local top = math.max(badge.tabline_height(), 1) -- level with the pads' top border
+        local rows, cols = {}, {}
+        for _, kind in ipairs({ "notes", "code", "db" }) do
+          local cfg = vim.api.nvim_win_get_config(badge.get_win(kind))
+          table.insert(rows, cfg.row)
+          table.insert(cols, cfg.col)
+        end
+        assert.same({ top, top + 3, top + 6 }, rows) -- one under the other
+        assert.same({ 150 - 1 - 5, 150 - 1 - 5, 150 - 1 - 5 }, cols) -- same right edge
+
+        -- pads open left of the badges: icon + " 9" (3) + padding 2 + borders 2 + margin/gap 2 = 9
+        sm.toggle_scratch_pad("lua")
+        local win = calls[#calls].opts.win
+        assert.equals(150 - 9 - win.width, win.col)
+
+        -- a single badge (only one kind of pad): the pad takes the space
+        list_items = { pad("bar.lua", "markdown") }
+        sm.refresh_indicator()
+        sm.toggle_scratch_pad("markdown")
+        win = calls[#calls].opts.win
+        assert.equals(150 - win.width, win.col)
+        -- opening a second kind makes two badges: room is kept
+        sm.toggle_scratch_pad("lua")
+        win = calls[#calls].opts.win
+        assert.equals(150 - 9 - win.width, win.col)
+
+        -- the default row layout leaves pads where they were
+        sm.setup({ enable_keymaps = false, indicator = { float = true } })
+        sm.toggle_scratch_pad("lua")
+        win = calls[#calls].opts.win
+        assert.equals(150 - win.width, win.col)
+      end)
+
+      it("lines stacked badges up with the pad's top and joins the open pad to its badge", function()
+        vim.wait(100) -- updates scheduled by earlier tests' plugin instances run first
+        vim.o.columns = 150
+        sm.setup({ enable_keymaps = false, indicator = { float = true, layout = "column", icon = "N" } })
+        local md_pad = pad("bar.lua", "markdown")
+        list_items = { md_pad }
+        local source = edit_source("bar.lua")
+        sm.refresh_indicator()
+        assert.equals(math.max(badge.tabline_height(), 1), vim.api.nvim_win_get_config(badge.get_win("notes")).row)
+        assert.is_nil(badge._connector.win)
+
+        -- a pad window where the plugin puts it (col = columns - gutter - width)
+        local root = vim.fn.stdpath("data") .. "/scratch"
+        vim.fn.mkdir(root, "p")
+        local buf = vim.fn.bufadd(root .. "/notes_pad.markdown")
+        vim.fn.bufload(buf)
+        vim.bo[buf].filetype = "markdown"
+        vim.b[buf].scratch_manager_source = vim.api.nvim_buf_get_name(source)
+        local width = 50
+        local gutter = 9 -- "N" + " 9", padding, borders, margin/gap... (see the column layout test)
+        local pad_win = vim.api.nvim_open_win(buf, true, {
+          relative = "editor", row = 1, col = 150 - gutter - width, width = width, height = 20, border = "rounded",
+        })
+        sm.refresh_indicator()
+        local conn = badge._connector.win
+        assert.is_not_nil(conn)
+        local cfg = vim.api.nvim_win_get_config(conn)
+        local badge_cfg = vim.api.nvim_win_get_config(badge.get_win("notes"))
+        assert.equals(badge_cfg.row + 1, cfg.row) -- the badge's middle row
+        assert.equals(150 - gutter - width + width + 1, cfg.col) -- on the pad's right border
+        local text = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(conn), 0, 1, false)[1]
+        assert.truthy(text:match("^├─*┤$"))
+        assert.equals(badge_cfg.col, cfg.col + vim.api.nvim_strwidth(text) - 1) -- ends on the badge's border
+
+        -- updates move the connector instead of reopening it: closing it would fire WinClosed,
+        -- which updates the badges again, in an endless loop (flicker, CPU)
+        vim.api.nvim_exec_autocmds("WinClosed", { pattern = tostring(conn) })
+        vim.wait(200)
+        sm.refresh_indicator()
+        vim.wait(200)
+        assert.equals(conn, badge._connector.win)
+
+        vim.api.nvim_win_close(pad_win, true)
+        sm.refresh_indicator()
+        assert.is_nil(badge._connector.win)
+        -- and its own closing doesn't trigger another round
+        local before = vim.fn.win_getid(vim.fn.winnr("$"))
+        vim.wait(200)
+        assert.is_nil(badge._connector.win)
+        assert.equals(before, vim.fn.win_getid(vim.fn.winnr("$")))
+      end)
+
+      it("doesn't loop when badges close: their WinClosed starts no update", function()
+        sm.setup({ enable_keymaps = false, indicator = { float = true, layout = "column" } })
+        list_items = { pad("bar.lua", "markdown"), pad("bar.lua", "lua") }
+        edit_source("bar.lua")
+        sm.refresh_indicator()
+        vim.wait(100) -- let updates already scheduled (BufEnter while setting up) run first
+        local updates = 0
+        local refresh = sm.refresh_indicator
+        sm.refresh_indicator = function(...)
+          updates = updates + 1
+          return refresh(...)
+        end
+        vim.api.nvim_win_close(badge.get_win("code"), true) -- fires WinClosed for a badge
+        vim.wait(200)
+        sm.refresh_indicator = refresh
+        assert.equals(0, updates)
+      end)
+
+      it("keeps stacked badges up inside a pad, showing its source file's pads", function()
+        sm.setup({ enable_keymaps = false, indicator = { float = true, layout = "column" } })
+        local md_pad = pad("bar.lua", "markdown")
+        list_items = { md_pad }
+        local source = edit_source("bar.lua")
+        sm.refresh_indicator()
+        local root = vim.fn.stdpath("data") .. "/scratch"
+        vim.fn.mkdir(root, "p")
+        vim.cmd.edit(vim.fn.fnameescape(root .. "/notes_pad.markdown"))
+        vim.b.scratch_manager_source = vim.api.nvim_buf_get_name(source)
+        sm.refresh_indicator()
+        assert.is_not_nil(badge.get_win("notes"))
+
+        -- the default layout hides them inside a pad, as before
+        sm.setup({ enable_keymaps = false, indicator = { float = true } })
+        sm.refresh_indicator()
+        assert.is_nil(badge.get_win("notes"))
+      end)
+
       it("uses the editor background like the pads, or the float background when not transparent", function()
         sm.setup({ enable_keymaps = false, indicator = { float = true } })
         list_items = { pad("bar.lua", "markdown") }

@@ -1,5 +1,5 @@
 ---Floating scratch pad badges for scratch-manager.nvim
----Small bordered windows in the top-right corner, one per pad kind ("notes" for markdown
+---Small bordered windows in the top-right corner (side by side, or stacked down the right edge), one per pad kind ("notes" for markdown
 ---pads, "code" for language pads, "db" for SQL pads), that open their pad when clicked
 
 local M = {}
@@ -14,6 +14,10 @@ local state = {
 }
 
 local ns = vim.api.nvim_create_namespace("scratch-manager-badge")
+
+-- Connector joining an open pad's right border to its badge: "├─┤" in the pad's border color
+local connector = { buf = nil, win = nil }
+
 
 local GROW_FRAMES = 10
 local GROW_INTERVAL_MS = 15
@@ -42,6 +46,14 @@ function M.get_win(kind)
 	return nil
 end
 
+---Is this one of the plugin's own windows (a badge, the connector, a grow box)? Their opening and
+---closing must not trigger badge updates: an update closes and reopens them, which would loop.
+---@param win number
+---@return boolean
+function M.is_own_win(win)
+	return M.is_badge_win(win) or (connector.win ~= nil and connector.win == win) or state.grow_win == win
+end
+
 ---Is the given (or current) window one of the badge windows?
 ---@param win number|nil Window id (defaults to the current window)
 ---@return boolean
@@ -62,6 +74,7 @@ function M.hide(kind)
 		for k in pairs(badges) do
 			M.hide(k)
 		end
+		M.disconnect()
 		return
 	end
 	local badge = badges[kind]
@@ -112,8 +125,8 @@ end
 ---@param col number Editor column of the badge's left border
 ---@param border_hl string Highlight group for the border
 ---@param on_click function Called when the badge is clicked
----@param opts? { transparent?: boolean } transparent (default): editor background like the pads;
----  false: the regular floating-window background
+---@param opts? { transparent?: boolean, row?: number } transparent (default): editor background like
+---  the pads; false: the regular floating-window background. row: editor row (default: below the tabline)
 function M.show(kind, text, col, border_hl, on_click, opts)
 	opts = opts or {}
 	local buf = ensure_buf(kind, on_click)
@@ -129,7 +142,7 @@ function M.show(kind, text, col, border_hl, on_click, opts)
 
 	local win_config = {
 		relative = "editor",
-		row = M.tabline_height(),
+		row = opts.row or M.tabline_height(),
 		col = math.max(0, col),
 		width = M.width(text),
 		height = 1,
@@ -162,6 +175,68 @@ function M.show(kind, text, col, border_hl, on_click, opts)
 	vim.api.nvim_win_call(badge.win, function()
 		vim.fn.winrestview({ lnum = 1, col = 0, topline = 1, leftcol = 0 })
 	end)
+end
+
+
+---Hide the pad-to-badge connector
+function M.disconnect()
+	if connector.win and vim.api.nvim_win_is_valid(connector.win) then
+		pcall(vim.api.nvim_win_close, connector.win, true)
+	end
+	connector.win = nil
+end
+
+---Join an open pad's right border to a badge to its right, so the badge reads as the pad's tab
+---(stacked layout). Drawn over the pad's border cell, the gap and the badge's left border.
+---@param kind ScratchManagerBadgeKind Badge of the open pad
+---@param pad_win number The pad window
+---@param border_hl string Border highlight of the pad (and badge)
+function M.connect(kind, pad_win, border_hl)
+	local badge_win = M.get_win(kind)
+	if not (badge_win and pad_win and vim.api.nvim_win_is_valid(pad_win)) then
+		return M.disconnect()
+	end
+	local function num(v)
+		return type(v) == "table" and v[false] or v
+	end
+	local pad, bdg = vim.api.nvim_win_get_config(pad_win), vim.api.nvim_win_get_config(badge_win)
+	if pad.relative ~= "editor" then
+		return M.disconnect()
+	end
+	local right_border = num(pad.col) + pad.width + 1
+	local badge_col, row = num(bdg.col), num(bdg.row) + 1 -- the badge's middle (text) row
+	local pad_row = num(pad.row)
+	if badge_col <= right_border or row <= pad_row or row > pad_row + pad.height then
+		return M.disconnect() -- overlapping, or the badge is beside the pad's top/bottom border
+	end
+	local text = "├" .. string.rep("─", badge_col - right_border - 1) .. "┤"
+	if not (connector.buf and vim.api.nvim_buf_is_valid(connector.buf)) then
+		connector.buf = vim.api.nvim_create_buf(false, true)
+		vim.bo[connector.buf].bufhidden = "hide"
+	end
+	vim.bo[connector.buf].modifiable = true
+	vim.api.nvim_buf_set_lines(connector.buf, 0, -1, false, { text })
+	vim.bo[connector.buf].modifiable = false
+	local config = {
+		relative = "editor",
+		row = row,
+		col = right_border,
+		width = vim.api.nvim_strwidth(text),
+		height = 1,
+		style = "minimal",
+		focusable = false,
+		zindex = 60, -- above the pad (50) and the badges (45)
+	}
+	if connector.win and vim.api.nvim_win_is_valid(connector.win)
+		and vim.api.nvim_win_get_tabpage(connector.win) == vim.api.nvim_get_current_tabpage() then
+		vim.api.nvim_win_set_config(connector.win, config)
+	else
+		M.disconnect()
+		config.noautocmd = true
+		connector.win = vim.api.nvim_open_win(connector.buf, false, config)
+	end
+	vim.wo[connector.win].winhighlight = "NormalFloat:" .. border_hl
+	vim.wo[connector.win].winblend = 0
 end
 
 ---Is the grow animation running?
@@ -203,8 +278,10 @@ function M.grow(kind, target, border_hl, on_done)
 		noautocmd = true,
 	})
 	vim.wo[win].winhighlight = "NormalFloat:Normal,FloatBorder:" .. border_hl
+	state.grow_win = win
 	state.animating = true
 	M.hide()
+	M.disconnect()
 
 	local frame = 0
 	local timer = (vim.uv or vim.loop).new_timer()
@@ -215,6 +292,7 @@ function M.grow(kind, target, border_hl, on_done)
 		if vim.api.nvim_win_is_valid(win) then
 			vim.api.nvim_win_close(win, true)
 		end
+		state.grow_win = nil
 		on_done()
 	end
 	timer:start(0, GROW_INTERVAL_MS, vim.schedule_wrap(function()
@@ -244,5 +322,6 @@ end
 
 -- Expose internal state for testing
 M._badges = badges
+M._connector = connector
 
 return M
