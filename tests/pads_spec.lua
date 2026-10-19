@@ -281,6 +281,33 @@ describe("scratch-manager pads", function()
     end)
   end)
 
+  describe("pad setup (language on_open)", function()
+    it("runs once the pad has a window, not in Neovim's hidden autocmd window", function()
+      sm.setup({ enable_keymaps = false })
+      local seen = {}
+      require("scratch-manager.languages").register("smtestdb", {
+        kind = "db",
+        on_open = function(bufnr)
+          table.insert(seen, { win_type = vim.fn.win_gettype(), shown = #vim.fn.win_findbuf(bufnr) > 0 })
+        end,
+      })
+      local root = vim.fn.stdpath("data") .. "/scratch"
+      vim.fn.mkdir(root, "p")
+      edit_source("bar.lua")
+      -- like snacks: the filetype is set while the pad isn't shown (FileType runs in the autocmd window)
+      local buf = vim.fn.bufadd(root .. "/deferred.smtestdb")
+      vim.fn.bufload(buf)
+      vim.bo[buf].filetype = "smtestdb"
+      assert.same({}, seen)
+      -- then the pad window opens
+      vim.api.nvim_open_win(buf, true, { relative = "editor", row = 1, col = 1, width = 20, height = 5, border = "rounded" })
+      vim.wait(200, function() return #seen > 0 end)
+      assert.equals(1, #seen)
+      assert.equals("popup", seen[1].win_type)
+      assert.is_true(seen[1].shown)
+    end)
+  end)
+
   describe("flipping between pads", function()
     it("opens another kind of pad for the same source from inside a pad (==, =c, =q)", function()
       sm.setup({ enable_keymaps = false })

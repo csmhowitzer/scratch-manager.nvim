@@ -1059,6 +1059,18 @@ end
 ---@param bufnr number
 ---@private
 local function on_pad_open(bufnr)
+	-- snacks loads the pad and sets its filetype before the pad has a window, so BufEnter/FileType
+	-- run in Neovim's hidden autocmd window (top-left, no border). Anything slow or redrawing in
+	-- on_open (DB pads: loading the SQL provider and its connections, its notification) would show
+	-- that window with the pad's text; run it once the pad is in its own window
+	if vim.fn.win_gettype() == "autocmd" then
+		vim.schedule(function()
+			if vim.api.nvim_buf_is_valid(bufnr) then
+				on_pad_open(bufnr)
+			end
+		end)
+		return
+	end
 	local ft = vim.bo[bufnr].filetype
 	local lang = languages.get(ft)
 	if ft == "" or not lang.on_open or vim.b[bufnr].scratch_manager_opened == ft then
