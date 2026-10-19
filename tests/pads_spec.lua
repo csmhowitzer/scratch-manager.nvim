@@ -23,6 +23,11 @@ package.loaded["snacks"] = {
     icon = function()
       return "x"
     end,
+    file_encode = function(s)
+      return (s:gsub("[|/()%%]", function(c)
+        return ("_%%%02X"):format(c:byte())
+      end))
+    end,
   },
 }
 
@@ -324,12 +329,47 @@ describe("scratch-manager pads", function()
       assert.equals(md_pad.file, calls[2].opts.file) -- and the notes pad opened
       assert.equals(source, vim.api.nvim_get_current_buf()) -- opened from the source file
 
-      -- no DB pad yet: =q creates one for the source
+      -- no DB pad yet: =q creates one with the same key as these pads (their directory and branch)
       vim.cmd.edit(vim.fn.fnameescape(md_pad.file))
       vim.b.scratch_manager_source = source_name
       sm.toggle_scratch_pad("sql")
-      assert.equals("new", calls[4].kind)
+      assert.equals("open", calls[4].kind)
       assert.equals("sql", calls[4].opts.ft)
+      assert.equals(md_pad.name, calls[4].opts.name)
+      local key = "1||" .. md_pad.name .. "|" .. vim.fs.normalize(md_pad.cwd) .. "|"
+      assert.truthy(calls[4].opts.file:find(require("snacks").util.file_encode(key) .. ".sql", 1, true))
+    end)
+
+    it("finds the other pads by the open pad's own directory, even after a :cd", function()
+      sm.setup({ enable_keymaps = false, indicator = { float = true, layout = "column" } })
+      local source = edit_source("bar.lua")
+      local lua_pad, md_pad, sql_pad = pad("bar.lua", "lua"), pad("bar.lua", "markdown"), pad("bar.lua", "sql")
+      -- pad files under the scratch root (where pads are recognized as pads)
+      local root = vim.fn.stdpath("data") .. "/scratch"
+      vim.fn.mkdir(root, "p")
+      for _, item in ipairs({ lua_pad, md_pad, sql_pad }) do
+        local file = root .. "/cd_test." .. item.ft
+        vim.fn.writefile({ "x" }, file)
+        item.file = file
+      end
+      list_items = { lua_pad, md_pad, sql_pad }
+      vim.cmd.edit(vim.fn.fnameescape(lua_pad.file))
+      vim.b.scratch_manager_source = vim.api.nvim_buf_get_name(source)
+      local elsewhere = vim.fn.tempname()
+      vim.fn.mkdir(elsewhere, "p")
+      vim.fn.chdir(elsewhere) -- something changed :pwd since the pads were made
+
+      sm.toggle_scratch_pad("markdown")
+      assert.equals(md_pad.file, calls[#calls].opts.file) -- the existing notes pad, not a new one
+
+      -- and inside it, the stacked badges still show all three
+      vim.cmd.edit(vim.fn.fnameescape(md_pad.file))
+      vim.b.scratch_manager_source = vim.api.nvim_buf_get_name(source)
+      sm.refresh_indicator()
+      local badge = require("scratch-manager.badge")
+      assert.is_not_nil(badge.get_win("notes"))
+      assert.is_not_nil(badge.get_win("code"))
+      assert.is_not_nil(badge.get_win("db"))
     end)
 
     it("still just closes the pad with its own kind's key, or when its source is unknown", function()
@@ -1095,6 +1135,17 @@ describe("scratch-manager pads", function()
         vim.wait(200)
         sm.refresh_indicator = refresh
         assert.equals(0, updates)
+      end)
+
+      it("leaves room for stacked badges right after startup, before the badge cache is filled", function()
+        vim.o.columns = 150
+        sm.setup({ enable_keymaps = false, indicator = { float = true, layout = "column", icon = "N", code_icon = "C", db_icon = "D" } })
+        list_items = { pad("bar.lua", "markdown"), pad("bar.lua", "lua"), pad("bar.lua", "sql") }
+        local source = edit_source("bar.lua")
+        vim.b[source].scratch_manager_pad_kinds = nil -- the scheduled refresh hasn't run yet
+        sm.toggle_scratch_pad("lua")
+        local win = calls[#calls].opts.win
+        assert.equals(150 - 9 - win.width, win.col)
       end)
 
       it("keeps stacked badges up inside a pad, showing its source file's pads", function()

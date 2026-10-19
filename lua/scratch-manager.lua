@@ -272,19 +272,22 @@ end
 -- the screen on the right, 3 = nearly the full width (centered, with margins so it still reads as a popup)
 local pad_size = 1
 
+-- Defined below (needs the pad matching helpers): pad counts per kind for a source file
+local count_pad_kinds
+
 ---How many badges there will be with this pad open: the source file's pad kinds, plus the kind
----being opened. From inside a pad (`=w`), the pad's source file counts.
+---being opened. From inside a pad (`=w`), the pad's source file counts. Counted from the scratch
+---directory, not the per-buffer cache, which may not be filled yet (e.g. right after startup)
 ---@param ft string|nil Filetype of the pad being opened or resized
 ---@return number
 local function badge_count(ft)
 	local bufnr = vim.api.nvim_get_current_buf()
+	local source = vim.api.nvim_buf_get_name(bufnr)
 	if vim.b[bufnr].scratch_manager_pad and vim.b[bufnr].scratch_manager_source then
-		local source = vim.fn.bufnr(vim.b[bufnr].scratch_manager_source)
+		source = vim.b[bufnr].scratch_manager_source
 		ft = ft or vim.bo[bufnr].filetype
-		bufnr = source > 0 and source or bufnr
 	end
-	local kinds = vim.b[bufnr].scratch_manager_pad_kinds
-	kinds = type(kinds) == "table" and vim.deepcopy(kinds) or {}
+	local kinds = count_pad_kinds(source)
 	if ft then
 		local kind = pad_kind(ft)
 		kinds[kind] = math.max(kinds[kind] or 0, 1)
@@ -686,6 +689,69 @@ end
 ---@param buffers table List of existing scratch buffers from snacks.nvim
 ---@param config ScratchPadConfig Current buffer configuration
 ---@return table|nil Existing scratch buffer info or nil if not found
+---Pad counts per kind for a source file, from the scratch directory
+---@param source string|nil Source file path
+---@return { notes: number, code: number, db: number }
+count_pad_kinds = function(source)
+	local kinds = { notes = 0, code = 0, db = 0 }
+	if not source or source == "" or vim.startswith(vim.fs.normalize(source), scratch_root() .. "/") then
+		return kinds
+	end
+	local ok, buffers = pcall(function()
+		return get_snacks().scratch.list()
+	end)
+	if not ok or type(buffers) ~= "table" then
+		return kinds
+	end
+	local cwd = vim.fs.normalize((vim.uv or vim.loop).cwd())
+	local config = {
+		name = vim.fn.fnamemodify(source, ":t"),
+		path = vim.fn.fnamemodify(cwd, ":p:~"),
+		branch = utils.get_git_branch(cwd),
+	}
+	for _, item in ipairs(M.find_scratch_pads(buffers, config)) do
+		local kind = pad_kind(item.ft)
+		kinds[kind] = kinds[kind] + 1
+	end
+	return kinds
+end
+
+---Pads that belong with an open pad (same source file name, directory and branch as recorded when
+---the pad was created), so a later `:cd` doesn't separate them. nil when the pad isn't listed yet.
+---@param bufnr number Pad buffer
+---@return table[]|nil items
+local function pad_siblings(bufnr)
+	local ok, buffers = pcall(function()
+		return get_snacks().scratch.list()
+	end)
+	if not ok or type(buffers) ~= "table" then
+		return nil
+	end
+	local own = pad_for_buffer(buffers, bufnr)
+	if not (own and own.cwd) then
+		return nil
+	end
+	return vim.tbl_filter(function(item)
+		return item.name == own.name and item.cwd == own.cwd and (item.branch or "") == (own.branch or "")
+	end, buffers)
+end
+
+---Pad counts per kind for an open pad's siblings (itself included, even before its first save)
+---@param bufnr number Pad buffer
+---@param source string|nil Its source file, used when the pad isn't listed yet
+---@return { notes: number, code: number, db: number }
+local function count_sibling_kinds(bufnr, source)
+	local siblings = pad_siblings(bufnr)
+	local kinds = siblings and { notes = 0, code = 0, db = 0 } or count_pad_kinds(source)
+	for _, item in ipairs(siblings or {}) do
+		local kind = pad_kind(item.ft)
+		kinds[kind] = kinds[kind] + 1
+	end
+	local own = pad_kind(vim.bo[bufnr].filetype)
+	kinds[own] = math.max(kinds[own] or 0, 1)
+	return kinds
+end
+
 function M.find_existing_scratch_pad(buffers, config)
 	local item = M.find_scratch_pads(buffers, config)[1]
 	if not item then
@@ -772,6 +838,7 @@ function M.toggle_scratch_pad(file_type)
 		local wanted = file_type and pad_kind(file_type) or "code"
 		local source = vim.b[bufnr].scratch_manager_source
 			or store.get("pad_sources", vim.fs.normalize(vim.api.nvim_buf_get_name(bufnr)))
+		local siblings = pad_siblings(bufnr)
 		M.open_scratch(own_pad) -- closes it
 		if wanted == pad_kind(own_pad.ft) or not source or source == "" then
 			return
@@ -794,6 +861,28 @@ function M.toggle_scratch_pad(file_type)
 		vim.api.nvim_set_current_win(target)
 		if vim.api.nvim_win_get_buf(target) ~= source_buf then
 			vim.cmd.edit(vim.fn.fnameescape(source))
+		end
+		source_buf = vim.api.nvim_get_current_buf()
+		-- The other pad belongs with this one: same name, directory and branch as recorded for this pad,
+		-- whatever `:pwd` is now
+		if siblings and own_pad.cwd then
+			local ft = file_type or vim.filetype.match({ filename = source }) or get_config().default_filetype
+			for _, item in ipairs(siblings) do
+				if item.ft == ft then
+					M.open_scratch(item)
+					remember_source(source_buf)
+					return
+				end
+			end
+			-- Not there yet: create it under the same key snacks would use (count|icon|name|cwd|branch)
+			local key = table.concat({ "1", "", (own_pad.name:gsub("|", " ")), vim.fs.normalize(own_pad.cwd), own_pad.branch or "" }, "|")
+			M.open_scratch({
+				file = scratch_root() .. "/" .. get_snacks().util.file_encode(key .. "." .. ft),
+				fmtName = own_pad.name,
+				ft = ft,
+			})
+			remember_source(source_buf)
+			return
 		end
 		return M.toggle_scratch_pad(file_type)
 	end
@@ -836,11 +925,7 @@ local function current_kinds()
 		local name = vim.fs.normalize(vim.api.nvim_buf_get_name(0))
 		if name ~= "" and vim.startswith(name, scratch_root() .. "/") then
 			local source = vim.b.scratch_manager_source or store.get("pad_sources", name)
-			local source_buf = source and vim.fn.bufnr(source) or -1
-			kinds = source_buf > 0 and vim.deepcopy(vim.b[source_buf].scratch_manager_pad_kinds or {}) or {}
-			-- The open pad counts even before its first save (snacks lists saved pads only)
-			local own = pad_kind(vim.bo.filetype)
-			kinds[own] = math.max(kinds[own] or 0, 1)
+			kinds = count_sibling_kinds(vim.api.nvim_get_current_buf(), source)
 		end
 	end
 	return type(kinds) == "table" and kinds or { notes = 0, code = 0, db = 0 }
@@ -909,26 +994,10 @@ function M.refresh_indicator(bufnr)
 	local kinds = { notes = 0, code = 0, db = 0 }
 	if vim.bo[bufnr].buftype == "" and vim.api.nvim_buf_get_name(bufnr) ~= "" then
 		local buffers = get_snacks().scratch.list()
-		local own = pad_for_buffer(buffers, bufnr)
-		if not own then
+		if not pad_for_buffer(buffers, bufnr) then
 			for _, item in ipairs(M.find_scratch_pads(buffers, get_buffer_config(bufnr))) do
 				local kind = pad_kind(item.ft)
 				kinds[kind] = kinds[kind] + 1
-			end
-		elseif (get_config().indicator or {}).layout == "column" then
-			-- Inside a pad, stacked badges show its source file's pads: recount them (pads may have been
-			-- created by flipping between them, without going back to the source)
-			local source = vim.b[bufnr].scratch_manager_source
-				or store.get("pad_sources", vim.fs.normalize(vim.api.nvim_buf_get_name(bufnr)))
-			local source_buf = source and vim.fn.bufnr(source) or -1
-			if source_buf > 0 and source_buf ~= bufnr then
-				local source_kinds = { notes = 0, code = 0, db = 0 }
-				for _, item in ipairs(M.find_scratch_pads(buffers, get_buffer_config(source_buf))) do
-					local kind = pad_kind(item.ft)
-					source_kinds[kind] = source_kinds[kind] + 1
-				end
-				vim.b[source_buf].scratch_manager_pad_kinds = source_kinds
-				vim.b[source_buf].scratch_manager_pads = source_kinds.notes + source_kinds.code + source_kinds.db
 			end
 		end
 	end
